@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 通途客户端 macOS 开机自启(LaunchAgent)
+     用法:
+       cp tongtu /usr/local/bin/
+       修改下方 ProgramArguments 中的参数
+       cp deploy/com.tongtu.client.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.tongtu.client.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.tongtu.client</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/tongtu</string>
+        <string>-server</string><string>tunnel.example.com:7000</string>
+        <string>-token</string><string>CHANGE_ME</string>
+        <string>-name</string><string>myapp</string>
+        <string>-local</string><string>127.0.0.1:8080</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/tmp/tongtu.log</string>
+    <key>StandardErrorPath</key><string>/tmp/tongtu.log</string>
+</dict>
+</plist>
