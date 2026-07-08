@@ -69,6 +69,17 @@ make linux     # 交叉编译 bin/tongtu-linux-amd64 / arm64
 make vet
 ```
 
+## 自动构建与发布
+
+GitHub Actions 会在推送代码或提交 PR 时自动执行测试、`go vet` 和编译。
+推送 `v*` 标签会自动生成 Linux / macOS / Windows 的 amd64、arm64 安装包,
+并发布到 GitHub Release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## 快速上手
 
 ```bash

@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: 编译与测试
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 运行测试
+        run: go test ./...
+
+      - name: 静态检查
+        run: make vet
+
+      - name: 编译二进制
+        run: make build
+
+      - name: 冒烟测试
+        run: |
+          set -euo pipefail
+          ./bin/tongtu help >/dev/null
+          HOME="${RUNNER_TEMP}/tongtu-empty" ./bin/tongtu cred list >/dev/null
+          if ./bin/tongtu app add x --local 1.2.3.4:1 >/tmp/tongtu-smoke.log 2>&1; then
+            echo "期望 app add 在缺少域名参数时失败"
+            cat /tmp/tongtu-smoke.log
+            exit 1
+          fi
+
+  release:
+    name: 生成安装包
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 交叉编译并打包
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME}"
+          mkdir -p dist build/release
+
+          targets=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+            "windows/arm64"
+          )
+
+          for target in "${targets[@]}"; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            package="tongtu_${version}_${os}_${arch}"
+            package_dir="build/release/${package}"
+            binary="${package_dir}/tongtu"
+
+            if [ "${os}" = "windows" ]; then
+              binary="${binary}.exe"
+            fi
+
+            mkdir -p "${package_dir}/deploy"
+            CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" go build \
+              -trimpath \
+              -ldflags="-s -w" \
+              -o "${binary}" \
+              ./cmd/tongtu
+
+            cp README.md "${package_dir}/"
+            cp deploy/com.tongtu.client.plist "${package_dir}/deploy/"
+
+            if [ "${os}" = "windows" ]; then
+              (cd build/release && zip -qr "../../dist/${package}.zip" "${package}")
+            else
+              (cd build/release && tar -czf "../../dist/${package}.tar.gz" "${package}")
+            fi
+          done
+
+          (cd dist && shasum -a 256 * > checksums.txt)
+
+      - name: 创建或更新 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/* \
+              --title "tongtu ${GITHUB_REF_NAME}" \
+              --notes "自动发布 ${GITHUB_REF_NAME}。下载对应系统与架构的压缩包，解压后即可使用 tongtu。"
+          fi
