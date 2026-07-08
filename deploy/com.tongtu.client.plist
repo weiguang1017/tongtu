@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- 通途客户端 macOS 开机自启(LaunchAgent)
      用法:
-       cp tongtu /usr/local/bin/
-       修改下方 ProgramArguments 中的参数
+       cp bin/tongtu /usr/local/bin/
+       先在终端完成配置: tongtu cred add / domain add / app add
        cp deploy/com.tongtu.client.plist ~/Library/LaunchAgents/
        launchctl load ~/Library/LaunchAgents/com.tongtu.client.plist
+
+     说明: `tongtu run` 会运行 ~/.tongtu/config.json 中全部已启用的应用;
+     若只想跑单个端口且不落配置,可换回快捷模式参数
+     (-name / -local,并在 EnvironmentVariables 里配 TONGTU_CF_TOKEN / TONGTU_DOMAIN)。
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -13,10 +17,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/tongtu</string>
-        <string>-server</string><string>tunnel.example.com:7000</string>
-        <string>-token</string><string>CHANGE_ME</string>
-        <string>-name</string><string>myapp</string>
-        <string>-local</string><string>127.0.0.1:8080</string>
+        <string>run</string>
     </array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>

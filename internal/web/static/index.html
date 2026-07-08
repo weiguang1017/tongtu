@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通途 · 管理面板</title>
+<style>
+  :root { --fg:#1a1a1a; --muted:#777; --line:#e4e4e4; --accent:#0a7d38; --danger:#c0392b; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--fg);
+         max-width:880px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:22px; } h1 small { color:var(--muted); font-weight:normal; font-size:13px; margin-left:8px; }
+  h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bottom:6px; margin-top:32px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:normal; }
+  code { background:#f5f5f5; padding:1px 5px; border-radius:3px; font-size:13px; }
+  form { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center; }
+  input,select { padding:6px 8px; border:1px solid var(--line); border-radius:4px; font-size:14px; }
+  button { padding:6px 14px; border:none; border-radius:4px; background:var(--accent); color:#fff;
+           cursor:pointer; font-size:14px; }
+  button.link { background:none; color:var(--danger); padding:2px 4px; }
+  button.gray { background:#666; }
+  label.chk { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:4px; }
+  #bar { position:sticky; top:0; background:#fff; padding:10px 0; border-bottom:1px solid var(--line);
+         display:flex; gap:12px; align-items:center; }
+  #dot { width:10px; height:10px; border-radius:50%; background:#bbb; }
+  #dot.on { background:var(--accent); }
+  #msg { color:var(--danger); font-size:13px; min-height:18px; margin-top:8px; white-space:pre-wrap; }
+  .empty { color:var(--muted); font-size:13px; padding:8px; }
+</style>
+</head>
+<body>
+<h1>通途<small>天堑变通途,家宽即服务器</small></h1>
+
+<div id="bar">
+  <span id="dot"></span><span id="runState">未运行</span>
+  <button id="btnRun" onclick="runAll()">启动全部</button>
+  <button id="btnStop" class="gray" onclick="stopAll()">停止</button>
+</div>
+<div id="msg"></div>
+
+<h2>凭证 <small style="color:var(--muted);font-size:12px">Cloudflare API Token(需 Tunnel:Edit + DNS:Edit 权限)</small></h2>
+<table id="creds"><thead><tr><th>别名</th><th>Token</th><th>域名</th><th></th></tr></thead><tbody></tbody></table>
+<form onsubmit="return addCred(this)">
+  <input name="name" placeholder="别名,如 mycf" required pattern="[a-z0-9][a-z0-9-]*">
+  <input name="token" placeholder="Cloudflare API Token" required style="width:280px">
+  <button>添加凭证</button>
+</form>
+
+<h2>域名 <small style="color:var(--muted);font-size:12px">须已托管在 Cloudflare</small></h2>
+<table id="domains"><thead><tr><th>根域名</th><th>凭证</th><th>应用</th><th></th></tr></thead><tbody></tbody></table>
+<form onsubmit="return addDomain(this)">
+  <input name="name" placeholder="example.com" required>
+  <select name="cred" id="credSel"></select>
+  <button>登记域名</button>
+</form>
+
+<h2>应用</h2>
+<table id="apps"><thead><tr><th>名称</th><th>对外域名</th><th>本地地址</th><th>协议</th><th>源站TLS</th><th>状态</th><th></th></tr></thead><tbody></tbody></table>
+<form onsubmit="return addApp(this)">
+  <input name="name" placeholder="名称,如 blog" required pattern="[a-z0-9][a-z0-9-]*">
+  <input name="hostname" placeholder="blog.example.com" required>
+  <input name="local" placeholder="127.0.0.1:8080" required>
+  <select name="proto"><option>http</option><option>https</option><option>tcp</option></select>
+  <label class="chk"><input type="checkbox" name="no_tls_verify">跳过源站证书校验</label>
+  <input name="origin_server_name" placeholder="源站 SNI(可选)">
+  <button>添加应用</button>
+</form>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, opt) {
+  const r = await fetch(path, opt);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+  return body;
+}
+function showErr(e) { $('#msg').textContent = e.message || e; }
+function clearErr() { $('#msg').textContent = ''; }
+
+async function refresh() {
+  try {
+    const cfg = await api('/api/config');
+    $('#creds tbody').innerHTML = cfg.creds.map(c => `<tr>
+      <td>${esc(c.name)}</td><td><code>${esc(c.token_masked)}</code></td><td>${esc(c.domains.join(', ') || '-')}</td>
+      <td><button class="link" onclick="delCred('${esc(c.name)}')">删除</button></td></tr>`).join('')
+      || `<tr><td colspan="4" class="empty">尚无凭证</td></tr>`;
+    $('#domains tbody').innerHTML = cfg.domains.map(d => `<tr>
+      <td>${esc(d.name)}</td><td>${esc(d.cred)}</td><td>${esc(d.apps.join(', ') || '-')}</td>
+      <td><button class="link" onclick="delDomain('${esc(d.name)}')">移除</button></td></tr>`).join('')
+      || `<tr><td colspan="4" class="empty">尚无域名</td></tr>`;
+    $('#credSel').innerHTML = cfg.creds.map(c => `<option>${esc(c.name)}</option>`).join('');
+    $('#apps tbody').innerHTML = cfg.apps.map(a => `<tr>
+      <td>${esc(a.name)}</td>
+      <td><a href="https://${esc(a.hostname)}" target="_blank">${esc(a.hostname)}</a></td>
+      <td><code>${esc(a.local)}</code></td><td>${esc(a.proto)}</td>
+      <td>${a.no_tls_verify ? '免校验' : ''}${a.origin_server_name ? ' SNI=' + esc(a.origin_server_name) : ''}</td>
+      <td>${a.enabled ? '启用' : '停用'}</td>
+      <td><button class="link" onclick="toggleApp('${esc(a.name)}', ${!a.enabled})">${a.enabled ? '停用' : '启用'}</button>
+          <button class="link" onclick="delApp('${esc(a.name)}')">删除</button></td></tr>`).join('')
+      || `<tr><td colspan="7" class="empty">尚无应用</td></tr>`;
+    const st = await api('/api/status');
+    $('#dot').className = st.running ? 'on' : '';
+    $('#runState').textContent = st.running ? '运行中' : '未运行';
+    if (st.last_error) showErr(new Error('上次运行: ' + st.last_error));
+  } catch (e) { showErr(e); }
+}
+
+const post = (path, data) => api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+const doThen = p => p.then(() => { clearErr(); refresh(); }).catch(showErr);
+
+function addCred(f)  { doThen(post('/api/creds',  {name:f.name.value.trim(), token:f.token.value.trim()}).then(()=>f.reset())); return false; }
+function addDomain(f){ doThen(post('/api/domains',{name:f.name.value.trim(), cred:f.cred.value}).then(()=>f.reset())); return false; }
+function addApp(f) {
+  doThen(post('/api/apps', {
+    name:f.name.value.trim(), hostname:f.hostname.value.trim(), local:f.local.value.trim(),
+    proto:f.proto.value, no_tls_verify:f.no_tls_verify.checked,
+    origin_server_name:f.origin_server_name.value.trim(),
+  }).then(()=>f.reset()));
+  return false;
+}
+function delCred(n)   { if (confirm('删除凭证 ' + n + '?')) doThen(api('/api/creds/' + n,   {method:'DELETE'})); }
+function delDomain(n) { if (confirm('移除域名 ' + n + '?(Cloudflare 上的 Zone 不受影响)')) doThen(api('/api/domains/' + n, {method:'DELETE'})); }
+function delApp(n)    { if (confirm('删除应用 ' + n + '?(将同时删除其 DNS 记录)')) doThen(api('/api/apps/' + n,    {method:'DELETE'})); }
+async function toggleApp(n, enabled) {
+  try {
+    const cfg = await api('/api/config');
+    const a = cfg.apps.find(x => x.name === n);
+    await api('/api/apps/' + n, {method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({hostname:a.hostname, local:a.local, proto:a.proto,
+        no_tls_verify:a.no_tls_verify||false, origin_server_name:a.origin_server_name||'', enabled})});
+    clearErr(); refresh();
+  } catch (e) { showErr(e); }
+}
+function runAll()  { doThen(post('/api/run',  {})); }
+function stopAll() { doThen(post('/api/stop', {})); }
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

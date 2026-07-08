@@ -3,13 +3,14 @@
 > **天堑变通途 —— 家宽即服务器。**
 > *Your home broadband, served to the world.*
 
-「通途」是一个极简的内网穿透工具:一条命令,把家里任何一个本地端口,
-通过你自己的域名(HTTP + HTTPS)暴露到公网 —— 就像
-`https://yilutongxing.restartx.top` 那样,子域名即开即用,客户端零证书配置。
+「通途」是一个极简的内网穿透工具:把家里任何一个本地端口,
+通过你自己的域名(自动 HTTPS)暴露到公网。**纯客户端,无需自建服务器** ——
+公网接入、TLS 证书、DNS 全部由 Cloudflare 免费承担。
 
 ```
-tongtu -server tunnel.example.com:7000 -token xxx -name blog -local 127.0.0.1:8080
-✓ 通途已就绪: https://blog.example.com -> 127.0.0.1:8080
+tongtu app add blog --domain blog.example.com --local 127.0.0.1:8080
+tongtu run
+✓ 通途已就绪: https://blog.example.com -> http://127.0.0.1:8080
 ```
 
 ## 命名与 SLOGAN
@@ -17,106 +18,154 @@ tongtu -server tunnel.example.com:7000 -token xxx -name blog -local 127.0.0.1:80
 - **名称**:通途(TongTu)。取自"一桥飞架南北,天堑变通途"——家庭内网与公网之间
   隔着 NAT、动态 IP、封禁的 80/443 端口,这就是"天堑";通途负责架桥。
 - **SLOGAN**:**天堑变通途,家宽即服务器。**
-- 二进制命名:客户端 `tongtu`(日常敲的命令,短),服务端 `tongtud`(daemon 惯例)。
 
 ## 工作原理
 
 ```
- 访客浏览器                     公网服务器 (tongtud)                家里 (tongtu)
-──────────────                ──────────────────────              ────────────────
-https://blog.example.com ──▶  :443 泛域名证书卸载 TLS
-                              按子域名 blog 找到隧道 ──accept──▶  控制连接(客户端外连,
-                                                                 无需公网 IP / 端口映射)
-                              ◀───────── 数据连接(回拨)──────────
-                              字节流双向透传          ──────────▶  127.0.0.1:8080 本地服务
+ 访客浏览器                Cloudflare 边缘                     家里 (tongtu)
+──────────────           ──────────────────                 ─────────────────
+https://blog.example.com ──▶ 全球边缘节点,自动 TLS
+                             CNAME blog → <id>.cfargotunnel.com
+                                    │
+                                    ▼
+                             Cloudflare Tunnel  ◀──外连──  cloudflared 子进程
+                                                            (tongtu 自动托管)
+                                                                 │
+                                                                 ▼
+                                                            127.0.0.1:8080 本地服务
 ```
 
-- 客户端**主动外连**服务端,家里不需要公网 IP、不需要路由器端口映射;
-- HTTPS 由服务端用 `*.example.com` 泛域名证书统一卸载,客户端和本地服务零证书配置;
-- 每个公网请求按需回拨一条数据连接,支持 WebSocket / SSE / 长连接;
-- 纯 Go 标准库实现,零第三方依赖,单二进制跨平台。
+tongtu 本身只做**编排**(纯 Go 标准库,零第三方依赖):
+
+1. 调 Cloudflare API 创建(或复用)一条 Cloudflare Tunnel(每个凭证一条,所有应用共享);
+2. 写入 ingress 规则:每个应用一条,如 `blog.example.com → http://127.0.0.1:8080`;
+3. 创建 DNS CNAME:`blog → <tunnel_id>.cfargotunnel.com`(代理开启,TLS 自动签发);
+4. 启动并托管 `cloudflared` 子进程维持隧道连接(意外退出自动重启,指数退避)。
+
+- cloudflared **主动外连** Cloudflare,家里不需要公网 IP、不需要路由器端口映射;
+- HTTPS 由 Cloudflare 边缘统一卸载,本地服务零证书配置;
+- 原生支持 WebSocket / SSE / 长连接(HTTP/2 + QUIC);
+- Cloudflare Tunnel 免费、不限流量。
+
+## 前提条件(一次性,约 5 分钟)
+
+1. **域名托管在 Cloudflare**:有一个自己的域名,NS 已指向 Cloudflare(免费套餐即可)。
+2. **API Token**:在 <https://dash.cloudflare.com/profile/api-tokens> 创建自定义 Token,
+   授予两个权限:
+   - **Account → Cloudflare Tunnel → Edit**
+   - **Zone → DNS → Edit**(选择你的域名对应的 Zone)
+3. **cloudflared**:
+   ```bash
+   brew install cloudflared        # macOS
+   # Linux/Windows 见 https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+   ```
+   或者不装也行,`tongtu run --auto-install` 会自动下载官方二进制到 `~/.tongtu/bin/`。
 
 ## 构建
 
 ```bash
-go build -o bin/tongtu  ./cmd/tongtu    # 客户端(家里)
-go build -o bin/tongtud ./cmd/tongtud   # 服务端(公网服务器)
-
-# 交叉编译示例:给 Linux 服务器编服务端
-GOOS=linux GOARCH=amd64 go build -o bin/tongtud-linux ./cmd/tongtud
+make build     # 产出 bin/tongtu
+make linux     # 交叉编译 bin/tongtu-linux-amd64 / arm64
+make vet
 ```
 
-## 服务端部署(一次性,约 10 分钟)
-
-前提:一台有公网 IP 的服务器 + 一个域名(下文以 `example.com` 为例)。
-
-1. **DNS**:添加两条 A 记录指向服务器公网 IP:
-   - `tunnel.example.com`(客户端接入用)
-   - `*.example.com`(访客访问用;若不想占整个根域,可用 `*.t.example.com`,
-     则服务端 `-domain t.example.com`)
-
-2. **泛域名证书**(Let's Encrypt,DNS 验证,自动续期)——以 acme.sh + Cloudflare 为例:
-
-   ```bash
-   curl https://get.acme.sh | sh
-   export CF_Token="你的CloudflareAPI令牌"
-   acme.sh --issue --dns dns_cf -d example.com -d '*.example.com'
-   acme.sh --install-cert -d example.com \
-     --fullchain-file /etc/tongtu/fullchain.pem \
-     --key-file       /etc/tongtu/privkey.pem \
-     --reloadcmd      "systemctl restart tongtud"
-   ```
-
-3. **启动服务端**:
-
-   ```bash
-   tongtud -domain example.com -token 你的令牌 \
-     -tls-cert /etc/tongtu/fullchain.pem -tls-key /etc/tongtu/privkey.pem
-   ```
-
-   systemd 常驻见 [`deploy/tongtud.service`](deploy/tongtud.service);
-   防火墙放行 TCP 80 / 443 / 7000。
-
-## 客户端使用(家里,每次一条命令)
+## 快速上手
 
 ```bash
-# 把本地 8080 暴露为 blog.example.com
-tongtu -server tunnel.example.com:7000 -token 你的令牌 -name blog -local 127.0.0.1:8080
+# 1. 保存凭证(在线验证后存入 ~/.tongtu/config.json,权限 0600)
+tongtu cred add mycf --token <你的 API Token>
 
-# 令牌也可放环境变量,命令更短
-export TONGTU_TOKEN=你的令牌
-tongtu -server tunnel.example.com:7000 -name nas -local 192.168.1.10:5000
+# 2. 登记域名(验证该域名确实托管在你的 Cloudflare 账号下)
+tongtu domain add example.com
+
+# 3. 添加应用(可多个,共享一条隧道)
+tongtu app add blog --domain blog.example.com --local 127.0.0.1:8080
+tongtu app add nas  --domain nas.example.com  --local 192.168.1.10:5000
+
+# 4. 运行全部已启用应用(前台阻塞,Ctrl-C 退出)
+tongtu run
 ```
 
-- 断线自动重连(指数退避),放心挂机;
-- macOS 开机自启见 [`deploy/com.tongtu.client.plist`](deploy/com.tongtu.client.plist)。
+## 命令一览
 
-## 本机快速自测(不用域名)
+| 命令 | 说明 |
+|------|------|
+| `tongtu cred add <别名> --token <T>` | 添加凭证(在线验证 Token) |
+| `tongtu cred list` | 列出凭证(Token 打码显示) |
+| `tongtu cred update <别名> --token <T>` | 更换 Token |
+| `tongtu cred rm <别名>` | 删除凭证(被域名引用时拒绝) |
+| `tongtu domain add <根域名> [--cred X]` | 登记域名(验证 Zone 与权限) |
+| `tongtu domain list` | 列出已登记域名 |
+| `tongtu domain rm <根域名>` | 移除登记(不动 Cloudflare 上的 Zone;被应用引用时拒绝) |
+| `tongtu zones [--cred X]` | 列出凭证可见的全部可用域名 |
+| `tongtu app add <名> --domain <FQDN> --local <地址>` | 添加应用(见下方参数) |
+| `tongtu app list` | 列出应用 |
+| `tongtu app update <名> [参数...]` | 修改应用 |
+| `tongtu app enable/disable <名>` | 启用 / 停用 |
+| `tongtu app rm <名> [--keep-dns]` | 删除应用(默认连 DNS 记录一起删) |
+| `tongtu run [应用名...]` | 同步 Cloudflare 配置并运行(默认全部已启用应用) |
+| `tongtu status` | 查看各应用 DNS / 隧道就绪状态 |
+| `tongtu web [--addr 127.0.0.1:7080]` | 本地 Web 管理面板 |
+
+`app add / update` 参数:
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `--domain` | 对外完整域名,如 blog.example.com,须属于已登记根域名 | — |
+| `--local` | 本地服务地址 | — |
+| `--proto` | 本地服务协议 http / https / tcp | `http` |
+| `--no-tls-verify` | 本地服务为自签 HTTPS 证书时跳过校验 | 关 |
+| `--origin-server-name` | 源站 TLS 握手 SNI(证书域名与访问域名不一致时) | — |
+| `--disable` | 添加后暂不启用 | 关 |
+
+## Web 管理面板
 
 ```bash
-# 终端 1:起一个本地服务端,假装 lvh.me 是你的域名(lvh.me 全部解析到 127.0.0.1)
-go run ./cmd/tongtud -domain lvh.me -http :8080 -control :7000 -token dev
-
-# 终端 2:随便起个本地服务
-python3 -m http.server 3000
-
-# 终端 3:客户端
-go run ./cmd/tongtu -server 127.0.0.1:7000 -token dev -name demo -local 127.0.0.1:3000
-
-# 验证
-curl http://demo.lvh.me:8080/
+tongtu web     # 打开 http://127.0.0.1:7080
 ```
+
+浏览器里完成凭证 / 域名 / 应用的增删改与一键启停。默认只监听本机;
+监听非本机地址时必须同时设置访问令牌:
+
+```bash
+tongtu web --addr 0.0.0.0:7080 --web-token <随机字符串>
+# API 请求需带请求头 Authorization: Bearer <令牌>
+```
+
+## 快捷模式(不落配置)
+
+临时暴露单个端口,兼容旧用法:
+
+```bash
+export TONGTU_CF_TOKEN=<Token> TONGTU_DOMAIN=example.com
+tongtu -name demo -local 127.0.0.1:3000 -cleanup   # -cleanup: 退出时删除隧道与 DNS
+```
+
+## SSL / 证书说明
+
+- **访客侧 HTTPS**:证书由 Cloudflare 边缘自动签发、自动续期,零配置;
+- **源站 TLS**(本地服务本身是 HTTPS 时):`--proto https` 连接本地服务;
+  自签证书加 `--no-tls-verify`;证书域名与访问域名不一致时用 `--origin-server-name` 指定 SNI。
+
+## 开机自启(macOS)
+
+先用 CLI 完成配置,再安装 LaunchAgent(开机执行 `tongtu run`):
+见 [`deploy/com.tongtu.client.plist`](deploy/com.tongtu.client.plist)。
 
 ## 安全须知
 
-- 一定要设置 `-token`,否则任何人都能在你的域名下注册子域名;
-- 客户端与服务端之间的控制/数据通道目前是明文 TCP(令牌可被链路上的人截获),
-  建议仅在可信链路使用,或在前面套一层 TLS(见路线图);
-- 暴露到公网的本地服务自身要有认证 —— 通途只负责"能访问",不负责"该不该访问"。
+- **API Token 就是钥匙**:它能改你的 DNS 和隧道,请按最小权限创建并限定到具体 Zone;
+  `~/.tongtu/config.json` 保存着 Token(0600 权限),不要提交进仓库或同步到不可信设备;
+- 通往 Cloudflare 的隧道链路全程加密(cloudflared ↔ CF 边缘为 TLS);
+- 暴露到公网的本地服务自身要有认证 —— 通途只负责"能访问",不负责"该不该访问";
+  需要访问控制可在 Cloudflare Zero Trust 控制台给对应 hostname 加 Access 策略;
+- Web 面板监听非本机地址时强制要求 `--web-token`;
+- 注意:流量会经过 Cloudflare(其边缘终止 TLS),对 Cloudflare 不可见的端到端加密
+  不在本工具范围内。
 
 ## 路线图
 
-- [ ] 控制/数据通道 TLS 加密(复用泛域名证书)
-- [ ] 单控制连接上多路复用(yamux),减少回拨延迟
-- [ ] TCP/UDP 任意端口转发(不限于 HTTP)
-- [ ] 客户端 Web 面板与流量统计
+- [ ] `tongtu status` 显示 cloudflared 实时连接状态与流量统计
+- [ ] TCP 任意端口转发的访客侧引导(`cloudflared access tcp`)
+- [ ] TryCloudflare 免域名快速模式(随机 `*.trycloudflare.com` 地址)
+- [ ] 配置导入 / 导出与多机同步
