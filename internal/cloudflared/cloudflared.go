@@ -177,10 +177,13 @@ func Run(ctx context.Context, bin, token string) error {
 }
 
 func runOnce(ctx context.Context, bin, token string) error {
+	// --no-autoupdate 是全局 flag,必须放在 tunnel 子命令之前:
+	// 新版 cloudflared(≥2026.x)的 tunnel run 不再接受它,放后面会
+	// 打印 "Incorrect Usage" + 帮助后以退出码 0 结束,导致无限无效重启。
 	cmd := exec.CommandContext(ctx, bin,
+		"--no-autoupdate",
 		"tunnel", "run",
 		"--token", token,
-		"--no-autoupdate",
 	)
 	cmd.Stdout = childOutput
 	cmd.Stderr = childOutput
