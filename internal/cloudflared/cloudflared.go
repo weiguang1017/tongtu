@@ -9,12 +9,20 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
 )
+
+// childOutput 是 cloudflared 子进程输出的去向;面板模式下会 tee 一份到日志缓冲。
+var childOutput io.Writer = os.Stdout
+
+// TeeOutput 让 cloudflared 子进程的输出同时写入 w(供管理面板展示日志)。
+// 需在启动任何隧道之前调用。
+func TeeOutput(w io.Writer) { childOutput = io.MultiWriter(os.Stdout, w) }
 
 // binDir 是自动下载的 cloudflared 存放目录。
 func binDir() string {
@@ -70,7 +78,10 @@ func downloadURL() (string, error) {
 
 // Install 下载官方 cloudflared 到 ~/.tongtu/bin/ 并返回其路径。
 // macOS 的发布包是 tgz,交给系统 tar 解压,避免引入解压依赖。
-func Install(ctx context.Context) (string, error) {
+//
+// proxy 为空时用默认 HTTP 传输(仍会读取 HTTP(S)_PROXY 环境变量);非空时强制
+// 走该代理(如 http://127.0.0.1:7890),供国内直连 GitHub 受限的用户在面板里配置。
+func Install(ctx context.Context, proxy string) (string, error) {
 	u, err := downloadURL()
 	if err != nil {
 		return "", err
@@ -81,12 +92,21 @@ func Install(ctx context.Context) (string, error) {
 	}
 	dst := filepath.Join(dir, exeName())
 
+	client := http.DefaultClient
+	if proxy != "" {
+		pu, err := url.Parse(proxy)
+		if err != nil {
+			return "", fmt.Errorf("代理地址 %q 不合法: %w", proxy, err)
+		}
+		client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(pu)}}
+	}
+
 	log.Printf("正在下载 cloudflared: %s", u)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("下载 cloudflared: %w", err)
 	}
@@ -162,8 +182,8 @@ func runOnce(ctx context.Context, bin, token string) error {
 		"--token", token,
 		"--no-autoupdate",
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = childOutput
+	cmd.Stderr = childOutput
 	// ctx 取消时先发 SIGTERM 让 cloudflared 优雅断开,超时再 SIGKILL
 	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
 	cmd.WaitDelay = 10 * time.Second

@@ -3,143 +3,888 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>通途 · 管理面板</title>
+<title>通途 · 图形客户端</title>
 <style>
-  :root { --fg:#1a1a1a; --muted:#777; --line:#e4e4e4; --accent:#0a7d38; --danger:#c0392b; }
+  :root {
+    --bg:#f4f6f8; --card:#fff; --fg:#1b2430; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#0a7d38; --accent-weak:#e7f5ec; --danger:#c0392b; --danger-weak:#fdeeec;
+    --side:#1c2430; --side-fg:#c7cdd6; --side-active:#2a3648;
+    --radius:12px; --shadow:0 1px 3px rgba(16,24,40,.08);
+  }
   * { box-sizing:border-box; }
-  body { font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--fg);
-         max-width:880px; margin:0 auto; padding:24px 16px 64px; }
-  h1 { font-size:22px; } h1 small { color:var(--muted); font-weight:normal; font-size:13px; margin-left:8px; }
-  h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bottom:6px; margin-top:32px; }
+  html,body { height:100%; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--fg); font-size:14px; display:flex; }
+
+  /* ---- 侧边栏 ---- */
+  #side { width:200px; flex:none; background:var(--side); color:var(--side-fg);
+          display:flex; flex-direction:column; min-height:100vh; }
+  #side .brand { padding:20px 18px 14px; color:#fff; }
+  #side .brand b { font-size:20px; letter-spacing:1px; }
+  #side .brand small { display:block; font-size:11px; color:#8b95a5; margin-top:4px; }
+  #side nav { display:flex; flex-direction:column; padding:6px 10px; gap:2px; }
+  #side nav a { color:var(--side-fg); text-decoration:none; padding:9px 12px; border-radius:8px;
+                display:flex; align-items:center; gap:9px; cursor:pointer; }
+  #side nav a:hover { background:rgba(255,255,255,.06); }
+  #side nav a.active { background:var(--side-active); color:#fff; }
+  #side .foot { margin-top:auto; padding:14px 18px; font-size:11px; color:#66707f; }
+
+  /* ---- 主区 ---- */
+  #main { flex:1; min-width:0; display:flex; flex-direction:column; }
+  #topbar { display:flex; align-items:center; gap:12px; padding:14px 24px;
+            background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  #topbar h1 { font-size:16px; margin:0; font-weight:600; flex:1; }
+  .pill { display:inline-flex; align-items:center; gap:7px; padding:5px 12px; border-radius:99px;
+          background:#eef1f4; color:var(--muted); font-size:13px; }
+  .pill .dot { width:8px; height:8px; border-radius:50%; background:#b6bcc6; }
+  .pill.on { background:var(--accent-weak); color:var(--accent); }
+  .pill.on .dot { background:var(--accent); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity:.4; } }
+
+  main.body { padding:22px 24px 60px; overflow:auto; }
+  .view { display:none; max-width:960px; }
+  .view.active { display:block; }
+  .view h2 { font-size:17px; margin:0 0 4px; }
+  .view p.sub { color:var(--muted); margin:0 0 18px; font-size:13px; }
+
+  /* ---- 卡片与表格 ---- */
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; margin-bottom:18px; }
+  .card { background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; }
+  .card h3 { margin:0 0 10px; font-size:13px; color:var(--muted); font-weight:500; }
+  .card .big { font-size:20px; font-weight:600; }
+  .card .desc { color:var(--muted); font-size:12px; margin-top:6px; word-break:break-all; }
+  .card .err { color:var(--danger); font-size:12px; margin-top:8px; white-space:normal; line-height:1.6; word-break:break-word; }
+  .card .err a { color:var(--accent); }
+  .card .err code { background:#f2f4f6; }
+
+  .panel { background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
-  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
-  th { color:var(--muted); font-weight:normal; }
-  code { background:#f5f5f5; padding:1px 5px; border-radius:3px; font-size:13px; }
-  form { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center; }
-  input,select { padding:6px 8px; border:1px solid var(--line); border-radius:4px; font-size:14px; }
-  button { padding:6px 14px; border:none; border-radius:4px; background:var(--accent); color:#fff;
-           cursor:pointer; font-size:14px; }
-  button.link { background:none; color:var(--danger); padding:2px 4px; }
-  button.gray { background:#666; }
-  label.chk { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:4px; }
-  #bar { position:sticky; top:0; background:#fff; padding:10px 0; border-bottom:1px solid var(--line);
-         display:flex; gap:12px; align-items:center; }
-  #dot { width:10px; height:10px; border-radius:50%; background:#bbb; }
-  #dot.on { background:var(--accent); }
-  #msg { color:var(--danger); font-size:13px; min-height:18px; margin-top:8px; white-space:pre-wrap; }
-  .empty { color:var(--muted); font-size:13px; padding:8px; }
+  th,td { text-align:left; padding:11px 16px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--muted); font-weight:500; font-size:12px; background:#fafbfc; }
+  tr:last-child td { border-bottom:none; }
+  td .ops { display:flex; gap:4px; justify-content:flex-end; }
+  code { background:#f2f4f6; padding:2px 6px; border-radius:4px; font-size:12.5px; }
+  .empty { color:var(--muted); padding:26px 16px; text-align:center; font-size:13px; }
+  .tag { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; }
+  .tag.on  { background:var(--accent-weak); color:var(--accent); }
+  .tag.off { background:#eef1f4; color:var(--muted); }
+  a.host { color:var(--accent); text-decoration:none; }
+  a.host:hover { text-decoration:underline; }
+
+  /* ---- 按钮与表单 ---- */
+  button { font:inherit; border:none; border-radius:8px; cursor:pointer; padding:8px 16px;
+           background:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.ghost { background:#fff; color:var(--fg); border:1px solid var(--line); }
+  button.ghost:hover { background:#f7f8fa; }
+  button.danger { background:var(--danger-weak); color:var(--danger); }
+  button.mini { padding:4px 10px; font-size:12.5px; border-radius:6px; }
+  .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .toolbar .grow { flex:1; }
+
+  label.f { display:block; margin-bottom:12px; }
+  label.f span { display:block; font-size:12.5px; color:var(--muted); margin-bottom:5px; }
+  input,select { font:inherit; width:100%; padding:8px 10px; border:1px solid var(--line);
+                 border-radius:8px; background:#fff; color:var(--fg); }
+  input:focus,select:focus { outline:2px solid #bfe3cd; border-color:var(--accent); }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  label.chk { display:flex; align-items:center; gap:7px; font-size:13px; margin-bottom:12px; }
+  label.chk input { width:auto; }
+  details.adv { margin-bottom:12px; }
+  details.adv summary { font-size:13px; color:var(--muted); cursor:pointer; margin-bottom:8px; }
+  .hint { font-size:12.5px; color:var(--muted); line-height:1.7; background:#f7f8fa;
+          border-radius:8px; padding:10px 12px; margin-bottom:14px; }
+  .hint a { color:var(--accent); }
+  .hostPreview { font-size:12.5px; color:var(--accent); margin:-6px 0 12px; min-height:16px; }
+
+  /* ---- 弹窗 ---- */
+  .overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none;
+             align-items:flex-start; justify-content:center; z-index:20; padding:6vh 16px; }
+  .overlay.show { display:flex; }
+  .modal { background:#fff; border-radius:14px; width:460px; max-width:100%;
+           max-height:86vh; overflow:auto; padding:22px 24px; box-shadow:0 20px 50px rgba(0,0,0,.25); }
+  .modal h3 { margin:0 0 16px; font-size:16px; }
+  .modal .btns { display:flex; justify-content:flex-end; gap:10px; margin-top:6px; }
+
+  /* ---- 向导 ---- */
+  .steps { display:flex; gap:6px; margin-bottom:18px; }
+  .steps i { flex:1; height:4px; border-radius:2px; background:var(--line); }
+  .steps i.done { background:var(--accent); }
+  .wizfoot { display:flex; justify-content:space-between; gap:10px; margin-top:14px; }
+  .zoneList { max-height:200px; overflow:auto; border:1px solid var(--line); border-radius:8px; margin-bottom:12px; }
+  .zoneList label { display:flex; gap:8px; align-items:center; padding:9px 12px;
+                    border-bottom:1px solid var(--line); cursor:pointer; font-size:13.5px; }
+  .zoneList label:last-child { border-bottom:none; }
+  .zoneList input { width:auto; }
+  .okmark { text-align:center; padding:8px 0 4px; }
+  .okmark .c { font-size:38px; color:var(--accent); }
+
+  /* ---- 权限指引 ---- */
+  .guide { counter-reset:g; margin:0; padding:0; list-style:none; }
+  .guide li { position:relative; padding:0 0 9px 26px; font-size:12.5px; color:var(--fg); line-height:1.6; }
+  .guide li:last-child { padding-bottom:0; }
+  .guide li::before { counter-increment:g; content:counter(g); position:absolute; left:0; top:0;
+    width:18px; height:18px; border-radius:50%; background:var(--accent); color:#fff;
+    font-size:11px; font-weight:600; display:flex; align-items:center; justify-content:center; }
+  .guide b { color:var(--accent); }
+  .guide .warn { color:var(--danger); }
+  .guide code { font-size:11.5px; }
+
+  /* ---- 日志 ---- */
+  #logbox { background:#10161f; color:#c9d4e3; border-radius:var(--radius); padding:14px 16px;
+            font:12.5px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+            height:60vh; overflow:auto; white-space:pre-wrap; word-break:break-all; }
+
+  /* ---- toast ---- */
+  #toasts { position:fixed; right:18px; bottom:18px; display:flex; flex-direction:column;
+            gap:8px; z-index:40; max-width:340px; }
+  .toast { background:#1b2430; color:#fff; padding:10px 14px; border-radius:10px; font-size:13px;
+           box-shadow:0 6px 18px rgba(0,0,0,.25); white-space:pre-wrap; word-break:break-all; }
+  .toast.err { background:#a03024; }
+
+  @media (max-width:760px) {
+    body { flex-direction:column; }
+    #side { width:100%; min-height:0; flex-direction:row; align-items:center; }
+    #side .brand { padding:12px 14px; } #side .brand small { display:none; }
+    #side nav { flex-direction:row; flex-wrap:wrap; padding:6px; }
+    #side .foot { display:none; }
+    .row2 { grid-template-columns:1fr; }
+  }
 </style>
 </head>
 <body>
-<h1>通途<small>天堑变通途,家宽即服务器</small></h1>
 
-<div id="bar">
-  <span id="dot"></span><span id="runState">未运行</span>
-  <button id="btnRun" onclick="runAll()">启动全部</button>
-  <button id="btnStop" class="gray" onclick="stopAll()">停止</button>
+<aside id="side">
+  <div class="brand"><b>通途</b><small>天堑变通途 · 家宽即服务器</small></div>
+  <nav id="nav">
+    <a data-v="overview" class="active">🏠 概览</a>
+    <a data-v="apps">🚀 应用</a>
+    <a data-v="domains">🌐 域名</a>
+    <a data-v="creds">🔑 凭证</a>
+    <a data-v="logs">📜 运行日志</a>
+  </nav>
+  <div class="foot">公网侧由 Cloudflare 承担<br>本机不对外监听任何端口</div>
+</aside>
+
+<div id="main">
+  <div id="topbar">
+    <h1 id="viewTitle">概览</h1>
+    <span class="pill" id="runPill"><span class="dot"></span><span id="runText">未运行</span></span>
+    <button id="btnStart" onclick="startTunnels()">▶ 启动隧道</button>
+    <button id="btnStop" class="ghost" onclick="stopTunnels()" style="display:none">■ 停止</button>
+  </div>
+
+  <main class="body">
+
+    <!-- ===== 概览 ===== -->
+    <section class="view active" id="view-overview">
+      <div class="cards">
+        <div class="card">
+          <h3>隧道状态</h3>
+          <div class="big" id="ovRun">未运行</div>
+          <div class="desc" id="ovRunDesc">点右上角「启动隧道」开始</div>
+          <div class="err" id="ovRunErr" style="display:none"></div>
+        </div>
+        <div class="card">
+          <h3>cloudflared 连接器</h3>
+          <div class="big" id="ovCfd">检测中…</div>
+          <div class="desc" id="ovCfdDesc"></div>
+          <div style="margin-top:10px"><button class="mini" id="btnInstall" style="display:none"
+               onclick="installCloudflared()">⬇ 一键安装</button>
+            <button class="mini ghost" onclick="openSettings()">⚙ 下载设置</button></div>
+          <div class="err" id="ovCfdErr" style="display:none;margin-top:10px"></div>
+        </div>
+        <div class="card">
+          <h3>配置概况</h3>
+          <div class="big" id="ovCount">-</div>
+          <div class="desc">凭证 / 域名 / 应用</div>
+          <div style="margin-top:10px"><button class="mini ghost" onclick="openWizard()">🧭 新手引导</button></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <table>
+          <thead><tr><th>应用</th><th>公网地址</th><th>本地服务</th><th>状态</th></tr></thead>
+          <tbody id="ovApps"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 应用 ===== -->
+    <section class="view" id="view-apps">
+      <h2>应用</h2>
+      <p class="sub">把本地端口映射到你的子域名,自动配置 HTTPS。</p>
+      <div class="toolbar"><div class="grow"></div>
+        <button onclick="openAppModal(null)">＋ 添加应用</button></div>
+      <div class="panel">
+        <table>
+          <thead><tr><th>名称</th><th>公网地址</th><th>本地服务</th><th>协议</th><th>状态</th><th style="text-align:right">操作</th></tr></thead>
+          <tbody id="tbApps"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 域名 ===== -->
+    <section class="view" id="view-domains">
+      <h2>域名</h2>
+      <p class="sub">登记你托管在 Cloudflare 上的根域名,应用的子域名将挂在它下面。</p>
+      <div class="toolbar"><div class="grow"></div>
+        <button onclick="openDomainModal()">＋ 登记域名</button></div>
+      <div class="panel">
+        <table>
+          <thead><tr><th>根域名</th><th>所用凭证</th><th>关联应用</th><th style="text-align:right">操作</th></tr></thead>
+          <tbody id="tbDomains"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 凭证 ===== -->
+    <section class="view" id="view-creds">
+      <h2>凭证</h2>
+      <p class="sub">Cloudflare API 令牌,需 <code>Cloudflare Tunnel · Edit</code>(账户)+ <code>DNS · Edit</code>(区域)两项权限;用户令牌(cfut_)与账户令牌(cfat_)均可。点「添加凭证」查看详细创建步骤。</p>
+      <div class="toolbar"><div class="grow"></div>
+        <button onclick="openCredModal()">＋ 添加凭证</button></div>
+      <div class="panel">
+        <table>
+          <thead><tr><th>别名</th><th>Token</th><th>关联域名</th><th style="text-align:right">操作</th></tr></thead>
+          <tbody id="tbCreds"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== 日志 ===== -->
+    <section class="view" id="view-logs">
+      <h2>运行日志</h2>
+      <p class="sub">通途与 cloudflared 连接器的实时输出。</p>
+      <div class="toolbar">
+        <label class="chk" style="margin:0"><input type="checkbox" id="logFollow" checked>自动滚动</label>
+        <div class="grow"></div>
+        <button class="mini ghost" onclick="clearLogView()">清空显示</button>
+      </div>
+      <div id="logbox"></div>
+    </section>
+
+  </main>
 </div>
-<div id="msg"></div>
 
-<h2>凭证 <small style="color:var(--muted);font-size:12px">Cloudflare API Token(需 Tunnel:Edit + DNS:Edit 权限)</small></h2>
-<table id="creds"><thead><tr><th>别名</th><th>Token</th><th>域名</th><th></th></tr></thead><tbody></tbody></table>
-<form onsubmit="return addCred(this)">
-  <input name="name" placeholder="别名,如 mycf" required pattern="[a-z0-9][a-z0-9-]*">
-  <input name="token" placeholder="Cloudflare API Token" required style="width:280px">
-  <button>添加凭证</button>
-</form>
+<!-- ===== 应用弹窗 ===== -->
+<div class="overlay" id="mdApp">
+  <div class="modal">
+    <h3 id="appModalTitle">添加应用</h3>
+    <label class="f"><span>应用名称(小写字母、数字、中划线)</span>
+      <input id="apName" placeholder="如 blog"></label>
+    <div class="row2">
+      <label class="f"><span>子域名</span><input id="apSub" placeholder="如 blog" oninput="updateHostPreview()"></label>
+      <label class="f"><span>根域名</span><select id="apDomain" onchange="updateHostPreview()"></select></label>
+    </div>
+    <label class="f" id="apCustomWrap" style="display:none"><span>完整域名</span>
+      <input id="apCustom" placeholder="blog.example.com" oninput="updateHostPreview()"></label>
+    <div class="hostPreview" id="apPreview"></div>
+    <label class="f"><span>本地服务地址</span>
+      <input id="apLocal" placeholder="127.0.0.1:8080"></label>
+    <details class="adv"><summary>高级选项</summary>
+      <label class="f"><span>本地服务协议</span>
+        <select id="apProto"><option>http</option><option>https</option><option>tcp</option></select></label>
+      <label class="chk"><input type="checkbox" id="apNoTLS">跳过源站证书校验(本地是自签名 https 时勾选)</label>
+      <label class="f"><span>源站 SNI(可选)</span><input id="apSNI" placeholder="留空即默认"></label>
+      <label class="chk" id="apEnabledWrap"><input type="checkbox" id="apEnabled" checked>启用该应用</label>
+    </details>
+    <div class="btns">
+      <button class="ghost" onclick="hide('mdApp')">取消</button>
+      <button id="apSave" onclick="submitApp()">保存</button>
+    </div>
+  </div>
+</div>
 
-<h2>域名 <small style="color:var(--muted);font-size:12px">须已托管在 Cloudflare</small></h2>
-<table id="domains"><thead><tr><th>根域名</th><th>凭证</th><th>应用</th><th></th></tr></thead><tbody></tbody></table>
-<form onsubmit="return addDomain(this)">
-  <input name="name" placeholder="example.com" required>
-  <select name="cred" id="credSel"></select>
-  <button>登记域名</button>
-</form>
+<!-- ===== 域名弹窗 ===== -->
+<div class="overlay" id="mdDomain">
+  <div class="modal">
+    <h3>登记域名</h3>
+    <label class="f"><span>使用凭证</span><select id="dmCred" onchange="loadZones()"></select></label>
+    <label class="f"><span>选择域名(自动读取该凭证可见的 Cloudflare Zone)</span>
+      <select id="dmZone"><option value="">加载中…</option></select></label>
+    <label class="f" id="dmManualWrap" style="display:none"><span>手动输入根域名</span>
+      <input id="dmManual" placeholder="example.com"></label>
+    <div class="btns">
+      <button class="ghost" onclick="hide('mdDomain')">取消</button>
+      <button id="dmSave" onclick="submitDomain()">登记</button>
+    </div>
+  </div>
+</div>
 
-<h2>应用</h2>
-<table id="apps"><thead><tr><th>名称</th><th>对外域名</th><th>本地地址</th><th>协议</th><th>源站TLS</th><th>状态</th><th></th></tr></thead><tbody></tbody></table>
-<form onsubmit="return addApp(this)">
-  <input name="name" placeholder="名称,如 blog" required pattern="[a-z0-9][a-z0-9-]*">
-  <input name="hostname" placeholder="blog.example.com" required>
-  <input name="local" placeholder="127.0.0.1:8080" required>
-  <select name="proto"><option>http</option><option>https</option><option>tcp</option></select>
-  <label class="chk"><input type="checkbox" name="no_tls_verify">跳过源站证书校验</label>
-  <input name="origin_server_name" placeholder="源站 SNI(可选)">
-  <button>添加应用</button>
-</form>
+<!-- ===== 凭证弹窗 ===== -->
+<div class="overlay" id="mdCred">
+  <div class="modal">
+    <h3 id="credModalTitle">添加凭证</h3>
+    <div class="hint">
+      在 <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">Cloudflare 控制台 → API 令牌</a>,点<b>「创建令牌」→ 最下方「自定义令牌 · 开始使用」</b>,在「权限」区加两行:
+      <ol class="guide" style="margin-top:8px">
+        <li>第一个下拉选 <b>Account</b>(账户)→ 第二个选 <b>Cloudflare Tunnel</b>(新版可能显示为 <code>Argo Tunnel (Legacy)</code>,是同一个)→ 第三个选 <b>Edit</b></li>
+        <li>点「+ 添加更多」→ 第一个下拉选 <b>Zone</b>(区域)→ 第二个选 <b>DNS</b> → 第三个选 <b>Edit</b><br>
+          <span class="warn">别选成 DNS Settings / DNS Firewall / DNS View,只选纯 <b>DNS</b> 才能写记录</span></li>
+        <li>下方「区域资源」选你要用的域名(或所有区域)→ 创建 → 复制令牌粘到下面</li>
+      </ol>
+      <span style="color:var(--muted)">用户令牌(cfut_)和账户令牌(cfat_)都支持。</span>
+    </div>
+    <label class="f" id="crNameWrap"><span>别名(小写字母、数字、中划线)</span>
+      <input id="crName" placeholder="如 mycf"></label>
+    <label class="f"><span>API Token</span>
+      <input id="crToken" placeholder="粘贴 Cloudflare API Token" autocomplete="off"></label>
+    <div class="btns">
+      <button class="ghost" onclick="hide('mdCred')">取消</button>
+      <button id="crSave" onclick="submitCred()">验证并保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 设置弹窗(下载代理) ===== -->
+<div class="overlay" id="mdSettings">
+  <div class="modal">
+    <h3>下载设置</h3>
+    <div class="hint">若自动下载 cloudflared 时连接 GitHub 失败(国内网络常见),可在此填写本机代理,
+      通途下载连接器时会走该代理。留空则不使用代理(仍会读取系统 HTTP(S)_PROXY 环境变量)。</div>
+    <label class="f"><span>下载代理地址</span>
+      <input id="stProxy" placeholder="http://127.0.0.1:7890  或  socks5://127.0.0.1:1080" autocomplete="off"></label>
+    <div class="hint" style="background:#f7f8fa">常见代理端口:Clash <code>7890</code> · V2rayN <code>10809</code> · Shadowsocks <code>1080</code>。
+      填好保存后,回到概览点「一键安装」即走代理下载。</div>
+    <div class="btns">
+      <button class="ghost" onclick="hide('mdSettings')">取消</button>
+      <button id="stSave" onclick="submitSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 新手向导 ===== -->
+<div class="overlay" id="mdWiz">
+  <div class="modal">
+    <h3 id="wizTitle">欢迎使用通途</h3>
+    <div class="steps"><i id="ws1"></i><i id="ws2"></i><i id="ws3"></i><i id="ws4"></i></div>
+
+    <div id="wiz1">
+      <div class="hint">三步把本地服务发布到公网:<b>① 添加 Cloudflare 凭证 → ② 选择域名 → ③ 映射本地端口</b>。<br><br>
+        去 <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">Cloudflare 控制台 → API 令牌</a>,点<b>「创建令牌」→ 最下方「自定义令牌 · 开始使用」</b>,在「权限」区加两行:
+        <ol class="guide" style="margin-top:8px">
+          <li>第一个下拉选 <b>Account</b>(账户)→ 第二个选 <b>Cloudflare Tunnel</b>(新版显示为 <code>Argo Tunnel (Legacy)</code>,同一个)→ 第三个选 <b>Edit</b></li>
+          <li>点「+ 添加更多」→ 第一个下拉选 <b>Zone</b>(区域)→ 第二个选 <b>DNS</b> → 第三个选 <b>Edit</b><br>
+            <span class="warn">别选成 DNS Settings / DNS Firewall / DNS View,只选纯 <b>DNS</b></span></li>
+          <li>下方「区域资源」选你的域名 → 创建 → 复制令牌(cfut_ 或 cfat_ 开头)粘到下面</li>
+        </ol>
+      </div>
+      <label class="f"><span>凭证别名(小写字母、数字、中划线,如 tongtu-test)</span><input id="wzCredName" value="mycf"></label>
+      <label class="f"><span>API Token</span><input id="wzToken" placeholder="粘贴 Token" autocomplete="off"></label>
+    </div>
+
+    <div id="wiz2" style="display:none">
+      <div class="hint">选择要使用的根域名(须已托管在 Cloudflare)。</div>
+      <div class="zoneList" id="wzZones"><div class="empty">加载中…</div></div>
+    </div>
+
+    <div id="wiz3" style="display:none">
+      <div class="hint">把一个本地端口映射到子域名。例如本机 <code>127.0.0.1:8080</code> 上的网页服务 → <code>blog.你的域名</code>。</div>
+      <label class="f"><span>应用名称</span><input id="wzAppName" placeholder="如 blog" oninput="wzSyncSub()"></label>
+      <div class="row2">
+        <label class="f"><span>子域名</span><input id="wzSub" placeholder="如 blog"></label>
+        <label class="f"><span>根域名</span><select id="wzDomainSel"></select></label>
+      </div>
+      <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
+    </div>
+
+    <div id="wiz4" style="display:none">
+      <div class="okmark"><div class="c">✓</div><p>配置完成!</p></div>
+      <div class="hint" id="wzCfdHint">正在检测 cloudflared 连接器…</div>
+      <div style="text-align:center;margin-bottom:8px">
+        <button id="wzInstall" style="display:none" onclick="installCloudflared()">⬇ 一键安装 cloudflared</button>
+        <button id="wzStart" style="display:none" onclick="startTunnels(); hide('mdWiz')">▶ 立即启动隧道</button>
+      </div>
+    </div>
+
+    <div class="wizfoot">
+      <button class="ghost" onclick="hide('mdWiz')">先跳过</button>
+      <div style="display:flex;gap:10px">
+        <button class="ghost" id="wzBack" onclick="wizGo(wizStep-1)" style="display:none">上一步</button>
+        <button id="wzNext" onclick="wizNext()">下一步</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
 
 <script>
+'use strict';
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// 与后端 config.NameRe 一致:凭证别名/应用名的合法字符集
+const NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+function checkName(name, what) {
+  if (!NAME_RE.test(name))
+    throw new Error(what + '「' + name + '」不合法:只能用小写字母、数字和中划线(-),不能用下划线等其他符号,例如 tongtu-test');
+}
+let cfg = {creds:[], domains:[], apps:[]};
+let status = {running:false};
 
 async function api(path, opt) {
   const r = await fetch(path, opt);
   const body = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+  if (!r.ok) { const e = new Error(body.error || ('HTTP ' + r.status)); e.status = r.status; throw e; }
   return body;
 }
-function showErr(e) { $('#msg').textContent = e.message || e; }
-function clearErr() { $('#msg').textContent = ''; }
+const post = (path, data) => api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+const put  = (path, data) => api(path, {method:'PUT',  headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
 
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (type === 'err' ? ' err' : '');
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), type === 'err' ? 8000 : 3500);
+}
+
+/* ---- 导航 ---- */
+const VIEW_TITLES = {overview:'概览', apps:'应用', domains:'域名', creds:'凭证', logs:'运行日志'};
+document.querySelectorAll('#nav a').forEach(a => a.onclick = () => nav(a.dataset.v));
+function nav(v) {
+  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.v === v));
+  document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
+  $('#viewTitle').textContent = VIEW_TITLES[v];
+  if (v === 'logs') scrollLog(true);
+}
+function show(id) { $('#' + id).classList.add('show'); }
+function hide(id) { $('#' + id).classList.remove('show'); }
+
+/* ---- 数据刷新与渲染 ---- */
 async function refresh() {
   try {
-    const cfg = await api('/api/config');
-    $('#creds tbody').innerHTML = cfg.creds.map(c => `<tr>
-      <td>${esc(c.name)}</td><td><code>${esc(c.token_masked)}</code></td><td>${esc(c.domains.join(', ') || '-')}</td>
-      <td><button class="link" onclick="delCred('${esc(c.name)}')">删除</button></td></tr>`).join('')
-      || `<tr><td colspan="4" class="empty">尚无凭证</td></tr>`;
-    $('#domains tbody').innerHTML = cfg.domains.map(d => `<tr>
-      <td>${esc(d.name)}</td><td>${esc(d.cred)}</td><td>${esc(d.apps.join(', ') || '-')}</td>
-      <td><button class="link" onclick="delDomain('${esc(d.name)}')">移除</button></td></tr>`).join('')
-      || `<tr><td colspan="4" class="empty">尚无域名</td></tr>`;
-    $('#credSel').innerHTML = cfg.creds.map(c => `<option>${esc(c.name)}</option>`).join('');
-    $('#apps tbody').innerHTML = cfg.apps.map(a => `<tr>
-      <td>${esc(a.name)}</td>
-      <td><a href="https://${esc(a.hostname)}" target="_blank">${esc(a.hostname)}</a></td>
-      <td><code>${esc(a.local)}</code></td><td>${esc(a.proto)}</td>
-      <td>${a.no_tls_verify ? '免校验' : ''}${a.origin_server_name ? ' SNI=' + esc(a.origin_server_name) : ''}</td>
-      <td>${a.enabled ? '启用' : '停用'}</td>
-      <td><button class="link" onclick="toggleApp('${esc(a.name)}', ${!a.enabled})">${a.enabled ? '停用' : '启用'}</button>
-          <button class="link" onclick="delApp('${esc(a.name)}')">删除</button></td></tr>`).join('')
-      || `<tr><td colspan="7" class="empty">尚无应用</td></tr>`;
-    const st = await api('/api/status');
-    $('#dot').className = st.running ? 'on' : '';
-    $('#runState').textContent = st.running ? '运行中' : '未运行';
-    if (st.last_error) showErr(new Error('上次运行: ' + st.last_error));
-  } catch (e) { showErr(e); }
+    cfg = await api('/api/config');
+    renderAll();
+  } catch (e) { toast('读取配置失败: ' + e.message, 'err'); }
+  await refreshStatus();
 }
 
-const post = (path, data) => api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
-const doThen = p => p.then(() => { clearErr(); refresh(); }).catch(showErr);
+async function refreshStatus() {
+  try { status = await api('/api/status'); } catch (e) { return; }
+  const on = status.running;
+  $('#runPill').className = 'pill' + (on ? ' on' : '');
+  $('#runText').textContent = on ? '运行中' : '未运行';
+  $('#btnStart').style.display = on ? 'none' : '';
+  $('#btnStop').style.display = on ? '' : 'none';
+  $('#ovRun').textContent = on ? '运行中' : '未运行';
+  $('#ovRunDesc').textContent = on
+    ? '本地服务已通过 Cloudflare 发布到公网'
+    : (cfg.apps.some(a => a.enabled) ? '点右上角「启动隧道」开始' : '先添加应用,再启动隧道');
+  const errEl = $('#ovRunErr');
+  if (status.last_error && !on) { errEl.textContent = '上次运行出错: ' + status.last_error; errEl.style.display = ''; }
+  else errEl.style.display = 'none';
 
-function addCred(f)  { doThen(post('/api/creds',  {name:f.name.value.trim(), token:f.token.value.trim()}).then(()=>f.reset())); return false; }
-function addDomain(f){ doThen(post('/api/domains',{name:f.name.value.trim(), cred:f.cred.value}).then(()=>f.reset())); return false; }
-function addApp(f) {
-  doThen(post('/api/apps', {
-    name:f.name.value.trim(), hostname:f.hostname.value.trim(), local:f.local.value.trim(),
-    proto:f.proto.value, no_tls_verify:f.no_tls_verify.checked,
-    origin_server_name:f.origin_server_name.value.trim(),
-  }).then(()=>f.reset()));
-  return false;
+  const cfd = status.cloudflared || {};
+  if (cfd.found) {
+    $('#ovCfd').textContent = '已就绪';
+    $('#ovCfdDesc').textContent = cfd.path || '';
+    $('#btnInstall').style.display = 'none';
+    $('#ovCfdErr').style.display = 'none';
+  } else if (status.installing) {
+    $('#ovCfd').textContent = '正在下载…';
+    $('#ovCfdDesc').textContent = '从 cloudflare 官方仓库下载连接器';
+    $('#btnInstall').style.display = 'none';
+    $('#ovCfdErr').style.display = 'none';
+  } else {
+    $('#ovCfd').textContent = '未安装';
+    $('#ovCfdDesc').textContent = '启动隧道前需要 cloudflared 连接器';
+    $('#btnInstall').style.display = '';
+    const errEl = $('#ovCfdErr');
+    if (cfd.install_error) {
+      errEl.innerHTML = '自动下载失败(常见于网络到 GitHub 受限):<br>' + esc(cfd.install_error)
+        + '<br><br><b>三种解决办法(任选其一):</b><br>'
+        + '· <b>配代理</b>:点上方「⚙ 下载设置」填本机代理后重试(推荐)<br>'
+        + '· macOS 终端执行 <code>brew install cloudflared</code><br>'
+        + '· 手动下载放到 <code>~/.tongtu/bin/</code>:'
+        + '<a href="https://github.com/cloudflare/cloudflared/releases/latest" target="_blank" rel="noopener">官方发布页</a>';
+      errEl.style.display = '';
+    } else errEl.style.display = 'none';
+  }
+  wizRenderCfd();
 }
-function delCred(n)   { if (confirm('删除凭证 ' + n + '?')) doThen(api('/api/creds/' + n,   {method:'DELETE'})); }
-function delDomain(n) { if (confirm('移除域名 ' + n + '?(Cloudflare 上的 Zone 不受影响)')) doThen(api('/api/domains/' + n, {method:'DELETE'})); }
-function delApp(n)    { if (confirm('删除应用 ' + n + '?(将同时删除其 DNS 记录)')) doThen(api('/api/apps/' + n,    {method:'DELETE'})); }
-async function toggleApp(n, enabled) {
+
+function renderAll() {
+  $('#ovCount').textContent = cfg.creds.length + ' / ' + cfg.domains.length + ' / ' + cfg.apps.length;
+
+  const appRow = a => `
+    <td><b>${esc(a.name)}</b></td>
+    <td><a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">${esc(a.hostname)}</a></td>
+    <td><code>${esc(a.proto)}://${esc(a.local)}</code></td>`;
+  $('#ovApps').innerHTML = cfg.apps.map(a => `<tr>${appRow(a)}
+      <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td></tr>`).join('')
+    || `<tr><td colspan="4" class="empty">还没有应用 —— 点「新手引导」三步发布你的第一个本地服务</td></tr>`;
+
+  // 操作按钮不内联 onclick:名称经 data-* 传递,由事件委托统一处理,
+  // 避免字符串插值进 JS 造成的注入面(即使服务端已有 NameRe 校验也不依赖它)
+  const op = (act, name, cls, label) =>
+    `<button class="mini ${cls}" data-act="${act}" data-name="${esc(name)}">${label}</button>`;
+
+  $('#tbApps').innerHTML = cfg.apps.map(a => `<tr>
+      <td><b>${esc(a.name)}</b></td>
+      <td><a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">${esc(a.hostname)}</a></td>
+      <td><code>${esc(a.local)}</code></td>
+      <td>${esc(a.proto)}</td>
+      <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td>
+      <td><div class="ops">
+        ${op('edit-app', a.name, 'ghost', '编辑')}
+        ${op('toggle-app', a.name, 'ghost', a.enabled ? '停用' : '启用')}
+        ${op('del-app', a.name, 'danger', '删除')}
+      </div></td></tr>`).join('')
+    || `<tr><td colspan="6" class="empty">尚无应用</td></tr>`;
+
+  $('#tbDomains').innerHTML = cfg.domains.map(d => `<tr>
+      <td><b>${esc(d.name)}</b></td>
+      <td>${esc(d.cred)}</td>
+      <td>${esc((d.apps || []).join(', ') || '—')}</td>
+      <td><div class="ops">${op('del-domain', d.name, 'danger', '移除')}</div></td></tr>`).join('')
+    || `<tr><td colspan="4" class="empty">尚无域名,先到「凭证」页添加 Token,再回来登记</td></tr>`;
+
+  $('#tbCreds').innerHTML = cfg.creds.map(c => `<tr>
+      <td><b>${esc(c.name)}</b></td>
+      <td><code>${esc(c.token_masked)}</code></td>
+      <td>${esc((c.domains || []).join(', ') || '—')}</td>
+      <td><div class="ops">
+        ${op('edit-cred', c.name, 'ghost', '更新 Token')}
+        ${op('del-cred', c.name, 'danger', '删除')}
+      </div></td></tr>`).join('')
+    || `<tr><td colspan="4" class="empty">尚无凭证</td></tr>`;
+}
+
+// 表格操作的事件委托:data-name 从 DOM 属性读取,不经过任何代码求值
+const TABLE_ACTIONS = {
+  'edit-app':   n => openAppModal(n),
+  'toggle-app': n => toggleApp(n),
+  'del-app':    n => delApp(n),
+  'del-domain': n => delDomain(n),
+  'edit-cred':  n => openCredModal(n),
+  'del-cred':   n => delCred(n),
+};
+document.querySelector('main.body').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if (btn && TABLE_ACTIONS[btn.dataset.act]) TABLE_ACTIONS[btn.dataset.act](btn.dataset.name);
+});
+
+/* ---- 启停 ---- */
+async function startTunnels() {
   try {
-    const cfg = await api('/api/config');
-    const a = cfg.apps.find(x => x.name === n);
-    await api('/api/apps/' + n, {method:'PUT', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({hostname:a.hostname, local:a.local, proto:a.proto,
-        no_tls_verify:a.no_tls_verify||false, origin_server_name:a.origin_server_name||'', enabled})});
-    clearErr(); refresh();
-  } catch (e) { showErr(e); }
+    const r = await post('/api/run', {});
+    toast('隧道已启动: ' + (r.hostnames || []).join(', '));
+  } catch (e) {
+    if (e.status === 412) {  // cloudflared 未安装
+      toast('cloudflared 未安装,请先在「概览」页一键安装', 'err');
+      nav('overview');
+    } else toast('启动失败: ' + e.message, 'err');
+  }
+  refreshStatus();
 }
-function runAll()  { doThen(post('/api/run',  {})); }
-function stopAll() { doThen(post('/api/stop', {})); }
+async function stopTunnels() {
+  try { await post('/api/stop', {}); toast('隧道已停止'); } catch (e) { toast(e.message, 'err'); }
+  refreshStatus();
+}
 
-refresh();
-setInterval(refresh, 5000);
+/* ---- cloudflared 安装 ---- */
+async function installCloudflared() {
+  try {
+    const r = await post('/api/cloudflared/install', {});
+    if (r.found) { toast('cloudflared 已就绪'); refreshStatus(); return; }
+    toast('开始下载 cloudflared,请稍候…');
+    status.installing = true; refreshStatus();
+    const timer = setInterval(async () => {
+      await refreshStatus();
+      if (!status.installing) {
+        clearInterval(timer);
+        const ok = (status.cloudflared || {}).found;
+        toast(ok ? 'cloudflared 安装完成' : 'cloudflared 安装失败,下方卡片有备选方案', ok ? '' : 'err');
+      }
+    }, 2000);
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---- 下载设置(代理) ---- */
+async function openSettings() {
+  try {
+    const s = await api('/api/settings');
+    $('#stProxy').value = s.proxy || '';
+  } catch (e) { $('#stProxy').value = ''; }
+  show('mdSettings');
+}
+async function submitSettings() {
+  $('#stSave').disabled = true;
+  try {
+    await put('/api/settings', {proxy: $('#stProxy').value.trim()});
+    toast('下载设置已保存'); hide('mdSettings');
+  } catch (e) { toast(e.message, 'err'); }
+  $('#stSave').disabled = false;
+}
+
+/* ---- 应用弹窗 ---- */
+let editingApp = null;
+function fillDomainSelect(sel, current) {
+  sel.innerHTML = cfg.domains.map(d => `<option ${d.name === current ? 'selected' : ''}>${esc(d.name)}</option>`).join('')
+    + `<option value="__custom" ${current === '__custom' ? 'selected' : ''}>自定义完整域名…</option>`;
+}
+function splitHost(hostname) {
+  // 在已登记域名里找最长后缀匹配,拆出子域名部分
+  let best = '';
+  for (const d of cfg.domains) if (hostname.endsWith('.' + d.name) && d.name.length > best.length) best = d.name;
+  if (!best) return null;
+  return {sub: hostname.slice(0, hostname.length - best.length - 1), domain: best};
+}
+function openAppModal(name) {
+  if (!cfg.domains.length && name === null) { toast('请先到「域名」页登记一个根域名', 'err'); nav('domains'); return; }
+  editingApp = name;
+  const a = name ? cfg.apps.find(x => x.name === name) : null;
+  $('#appModalTitle').textContent = a ? '编辑应用 ' + name : '添加应用';
+  $('#apName').value = a ? a.name : '';
+  $('#apName').disabled = !!a;
+  const parts = a ? splitHost(a.hostname) : null;
+  fillDomainSelect($('#apDomain'), parts ? parts.domain : (a ? '__custom' : cfg.domains[0]?.name));
+  $('#apSub').value = parts ? parts.sub : '';
+  $('#apCustom').value = a && !parts ? a.hostname : '';
+  $('#apLocal').value = a ? a.local : '';
+  $('#apProto').value = a ? a.proto : 'http';
+  $('#apNoTLS').checked = a ? !!a.no_tls_verify : false;
+  $('#apSNI').value = a ? (a.origin_server_name || '') : '';
+  $('#apEnabled').checked = a ? !!a.enabled : true;
+  $('#apEnabledWrap').style.display = a ? '' : 'none';
+  updateHostPreview();
+  show('mdApp');
+}
+function composedHostname() {
+  if ($('#apDomain').value === '__custom') return $('#apCustom').value.trim().toLowerCase();
+  const sub = $('#apSub').value.trim().toLowerCase();
+  return sub ? sub + '.' + $('#apDomain').value : '';
+}
+function updateHostPreview() {
+  const custom = $('#apDomain').value === '__custom';
+  $('#apCustomWrap').style.display = custom ? '' : 'none';
+  $('#apSub').parentElement.style.display = custom ? 'none' : '';
+  const h = composedHostname();
+  $('#apPreview').textContent = h ? '公网地址: https://' + h : '';
+}
+async function submitApp() {
+  const body = {
+    hostname: composedHostname(),
+    local: $('#apLocal').value.trim(),
+    proto: $('#apProto').value,
+    no_tls_verify: $('#apNoTLS').checked,
+    origin_server_name: $('#apSNI').value.trim(),
+    enabled: editingApp ? $('#apEnabled').checked : true,
+  };
+  $('#apSave').disabled = true;
+  try {
+    if (editingApp) { await put('/api/apps/' + editingApp, body); toast('应用已更新'); }
+    else {
+      const name = $('#apName').value.trim().toLowerCase();
+      checkName(name, '应用名');
+      await post('/api/apps', {name, ...body}); toast('应用已添加');
+    }
+    hide('mdApp'); refresh();
+  } catch (e) { toast(e.message, 'err'); }
+  $('#apSave').disabled = false;
+}
+async function toggleApp(name) {
+  const a = cfg.apps.find(x => x.name === name);
+  try {
+    await put('/api/apps/' + name, {hostname:a.hostname, local:a.local, proto:a.proto,
+      no_tls_verify:a.no_tls_verify||false, origin_server_name:a.origin_server_name||'', enabled:!a.enabled});
+    toast(a.enabled ? '已停用 ' + name : '已启用 ' + name); refresh();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function delApp(name) {
+  if (!confirm('删除应用 ' + name + '?将同时删除其 Cloudflare DNS 记录。')) return;
+  try { await api('/api/apps/' + name, {method:'DELETE'}); toast('已删除 ' + name); refresh(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---- 域名弹窗 ---- */
+function openDomainModal() {
+  if (!cfg.creds.length) { toast('请先到「凭证」页添加 Cloudflare API Token', 'err'); nav('creds'); return; }
+  $('#dmCred').innerHTML = cfg.creds.map(c => `<option>${esc(c.name)}</option>`).join('');
+  show('mdDomain');
+  loadZones();
+}
+async function loadZones() {
+  const sel = $('#dmZone');
+  sel.innerHTML = '<option value="">加载中…</option>';
+  $('#dmManualWrap').style.display = 'none';
+  try {
+    const zones = await api('/api/zones?cred=' + encodeURIComponent($('#dmCred').value));
+    const avail = zones.filter(z => !z.registered);
+    sel.innerHTML = avail.map(z => `<option>${esc(z.name)}</option>`).join('')
+      + '<option value="__manual">手动输入…</option>';
+    if (!avail.length) { sel.value = '__manual'; }
+  } catch (e) {
+    sel.innerHTML = '<option value="__manual">手动输入…</option>';
+    toast('读取 Zone 列表失败: ' + e.message, 'err');
+  }
+  sel.onchange = () => $('#dmManualWrap').style.display = sel.value === '__manual' ? '' : 'none';
+  sel.onchange();
+}
+async function submitDomain() {
+  const name = ($('#dmZone').value === '__manual' ? $('#dmManual').value : $('#dmZone').value).trim().toLowerCase();
+  if (!name) { toast('请选择或输入域名', 'err'); return; }
+  $('#dmSave').disabled = true;
+  try {
+    await post('/api/domains', {name, cred: $('#dmCred').value});
+    toast('域名已登记: ' + name); hide('mdDomain'); refresh();
+  } catch (e) { toast(e.message, 'err'); }
+  $('#dmSave').disabled = false;
+}
+async function delDomain(name) {
+  if (!confirm('移除域名 ' + name + '?(Cloudflare 上的 Zone 不受影响)')) return;
+  try { await api('/api/domains/' + name, {method:'DELETE'}); toast('已移除 ' + name); refresh(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---- 凭证弹窗 ---- */
+let editingCred = null;
+function openCredModal(name) {
+  editingCred = name || null;
+  $('#credModalTitle').textContent = name ? '更新凭证 ' + name + ' 的 Token' : '添加凭证';
+  $('#crNameWrap').style.display = name ? 'none' : '';
+  $('#crName').value = ''; $('#crToken').value = '';
+  show('mdCred');
+}
+async function submitCred() {
+  const token = $('#crToken').value.trim();
+  $('#crSave').disabled = true;
+  try {
+    if (!token) throw new Error('请粘贴 Cloudflare API Token');
+    if (editingCred) { await put('/api/creds/' + editingCred, {token}); toast('Token 已更新'); }
+    else {
+      const name = $('#crName').value.trim().toLowerCase();
+      checkName(name, '凭证别名');
+      await post('/api/creds', {name, token});
+      toast('凭证已添加: ' + name);
+    }
+    hide('mdCred'); refresh();
+  } catch (e) { toast(e.message, 'err'); }
+  $('#crSave').disabled = false;
+}
+async function delCred(name) {
+  if (!confirm('删除凭证 ' + name + '?')) return;
+  try { await api('/api/creds/' + name, {method:'DELETE'}); toast('已删除 ' + name); refresh(); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---- 新手向导 ---- */
+let wizStep = 1;
+function openWizard() { wizGo(cfg.creds.length ? (cfg.domains.length ? 3 : 2) : 1); show('mdWiz'); }
+function wizGo(n) {
+  wizStep = Math.max(1, Math.min(4, n));
+  for (let i = 1; i <= 4; i++) {
+    $('#wiz' + i).style.display = i === wizStep ? '' : 'none';
+    $('#ws' + i).className = i <= wizStep ? 'done' : '';
+  }
+  $('#wizTitle').textContent = ['', '第一步 · 添加凭证', '第二步 · 选择域名', '第三步 · 映射本地服务', '大功告成'][wizStep];
+  $('#wzBack').style.display = wizStep > 1 && wizStep < 4 ? '' : 'none';
+  $('#wzNext').style.display = wizStep < 4 ? '' : 'none';
+  if (wizStep === 2) wizLoadZones();
+  if (wizStep === 3) $('#wzDomainSel').innerHTML = cfg.domains.map(d => `<option>${esc(d.name)}</option>`).join('');
+  if (wizStep === 4) wizRenderCfd();
+}
+async function wizNext() {
+  const btn = $('#wzNext'); btn.disabled = true;
+  try {
+    if (wizStep === 1) {
+      const name = $('#wzCredName').value.trim().toLowerCase(), token = $('#wzToken').value.trim();
+      checkName(name, '凭证别名');
+      if (!token && !cfg.creds.some(c => c.name === name)) throw new Error('请粘贴 Cloudflare API Token');
+      if (cfg.creds.some(c => c.name === name)) {
+        // 同名凭证已存在:填了新 Token 就更新,留空则直接复用
+        if (token) { await put('/api/creds/' + name, {token}); toast('凭证 Token 已更新'); }
+        else toast('复用已有凭证 ' + name);
+      } else { await post('/api/creds', {name, token}); toast('凭证验证通过'); }
+      await refresh(); wizGo(2);
+    } else if (wizStep === 2) {
+      const pick = document.querySelector('input[name=wzZone]:checked');
+      if (!pick) throw new Error('请选择一个域名');
+      if (!pick.dataset.registered) {
+        await post('/api/domains', {name: pick.value, cred: $('#wzCredSelVal').value});
+        toast('域名已登记: ' + pick.value);
+      }
+      await refresh(); wizGo(3);
+    } else if (wizStep === 3) {
+      await post('/api/apps', {
+        name: $('#wzAppName').value.trim().toLowerCase(),
+        hostname: $('#wzSub').value.trim().toLowerCase() + '.' + $('#wzDomainSel').value,
+        local: $('#wzLocal').value.trim(), proto: 'http',
+        no_tls_verify: false, origin_server_name: '',
+      });
+      toast('应用已添加');
+      await refresh(); wizGo(4);
+    }
+  } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
+}
+function wzSyncSub() { $('#wzSub').value = $('#wzAppName').value.trim().toLowerCase(); }
+async function wizLoadZones() {
+  const box = $('#wzZones');
+  box.innerHTML = '<div class="empty">加载中…</div>';
+  // 记录当前凭证:优先向导里填的别名,不存在则退回配置中的第一个
+  let credName = $('#wzCredName').value.trim().toLowerCase();
+  if (!cfg.creds.some(c => c.name === credName)) credName = (cfg.creds[0] || {}).name || '';
+  box.insertAdjacentHTML('afterend', $('#wzCredSelVal') ? '' : `<input type="hidden" id="wzCredSelVal">`);
+  $('#wzCredSelVal').value = credName;
+  try {
+    const zones = await api('/api/zones?cred=' + encodeURIComponent(credName));
+    box.innerHTML = zones.map((z, i) => `<label>
+        <input type="radio" name="wzZone" value="${esc(z.name)}" ${z.registered ? 'data-registered="1"' : ''} ${i === 0 ? 'checked' : ''}>
+        ${esc(z.name)}${z.registered ? ' <span class="tag on">已登记</span>' : ''}</label>`).join('')
+      || '<div class="empty">该凭证看不到任何 Zone,请确认 Token 的 Zone 权限范围</div>';
+  } catch (e) { box.innerHTML = `<div class="empty">读取失败: ${esc(e.message)}</div>`; }
+}
+function wizRenderCfd() {
+  if (!$('#mdWiz').classList.contains('show') || wizStep !== 4) return;
+  const cfd = status.cloudflared || {};
+  if (cfd.found) {
+    $('#wzCfdHint').innerHTML = 'cloudflared 连接器已就绪 ✓<br>点下方按钮启动隧道,几秒后即可通过你的域名访问本地服务。';
+    $('#wzInstall').style.display = 'none';
+    $('#wzStart').style.display = '';
+  } else if (status.installing) {
+    $('#wzCfdHint').textContent = '正在下载 cloudflared 连接器,请稍候…';
+    $('#wzInstall').style.display = 'none'; $('#wzStart').style.display = 'none';
+  } else {
+    $('#wzCfdHint').textContent = '还差最后一步:通途依赖 cloudflared 连接器与 Cloudflare 建立加密通道,点下方按钮自动安装。';
+    $('#wzInstall').style.display = ''; $('#wzStart').style.display = 'none';
+  }
+}
+
+/* ---- 日志 ---- */
+let logCursor = 0, logLines = [];
+async function pollLogs() {
+  try {
+    const r = await api('/api/logs?after=' + logCursor);
+    logCursor = r.next;
+    if (r.lines.length) {
+      logLines.push(...r.lines);
+      if (logLines.length > 2000) logLines = logLines.slice(-2000);
+      $('#logbox').textContent = logLines.join('\n');
+      scrollLog();
+    }
+  } catch (e) { /* 静默,下轮重试 */ }
+}
+function scrollLog(force) {
+  const box = $('#logbox');
+  if (force || $('#logFollow').checked) box.scrollTop = box.scrollHeight;
+}
+function clearLogView() { logLines = []; $('#logbox').textContent = ''; }
+
+/* ---- 启动 ---- */
+document.querySelectorAll('.overlay').forEach(o => o.addEventListener('mousedown', e => {
+  if (e.target === o && o.id !== 'mdWiz') o.classList.remove('show');
+}));
+(async () => {
+  await refresh();
+  if (!cfg.creds.length) openWizard();   // 首次使用自动进入向导
+  setInterval(refreshStatus, 3000);
+  setInterval(refresh, 15000);
+  setInterval(pollLogs, 2000);
+  pollLogs();
+})();
 </script>
 </body>
 </html>

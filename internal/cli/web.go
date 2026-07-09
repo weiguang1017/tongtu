@@ -13,9 +13,10 @@ func cmdWeb(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("web", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:7080", "面板监听地址(默认仅本机)")
 	token := fs.String("web-token", "", "面板访问令牌;监听非本机地址时必填(请求头 Authorization: Bearer <令牌>)")
+	open := fs.Bool("open", false, "启动后自动用系统浏览器打开面板")
 	fs.Parse(args) //nolint:errcheck
 
-	srv, err := web.New(*addr, *token)
+	srv, err := web.New(*addr, *token, *open)
 	if err != nil {
 		return err
 	}

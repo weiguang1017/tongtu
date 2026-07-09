@@ -2,3 +2,4 @@ bin/
 AGENTS.md
 CLAUDE.md
 .omc/
+.claude/

@@ -33,7 +33,7 @@ func cmdRun(ctx context.Context, args []string) error {
 		if !*autoInstall {
 			return err
 		}
-		if _, err := cloudflared.Install(ctx); err != nil {
+		if _, err := cloudflared.Install(ctx, cfg.Settings.Proxy); err != nil {
 			return err
 		}
 	}

@@ -1,12 +1,16 @@
 // tongtu 是「通途」客户端 —— 纯客户端内网穿透工具,公网侧完全由 Cloudflare 承担。
 //
+// 图形模式(推荐,双击或直接运行即可):
+//
+//	tongtu                                        # 启动图形管理界面并自动打开浏览器
+//
 // 子命令模式(配置持久化到 ~/.tongtu/config.json):
 //
 //	tongtu cred add mycf --token <CF_API_TOKEN>   # 保存凭证
 //	tongtu domain add example.com                 # 登记域名
 //	tongtu app add blog --domain blog.example.com --local 127.0.0.1:8080
 //	tongtu run                                    # 运行全部已启用应用
-//	tongtu web                                    # 本地管理面板
+//	tongtu web                                    # 图形管理界面(不自动开浏览器加 --open=false)
 //
 // 快捷模式(兼容旧用法,不落配置,临时暴露单个端口):
 //
@@ -41,8 +45,14 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// 无参数 = 图形模式:启动管理面板并自动打开浏览器
+	args := os.Args[1:]
+	if len(args) == 0 {
+		args = []string{"web", "--open"}
+	}
+
 	// 先尝试子命令;不匹配则回落到旧版单命令快捷路径
-	handled, err := cli.Execute(ctx, os.Args[1:])
+	handled, err := cli.Execute(ctx, args)
 	if handled {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			fmt.Fprintln(os.Stderr, "通途:", err)
@@ -132,7 +142,7 @@ func (a *quickApp) run(ctx context.Context) error {
 		if !a.autoInstall {
 			return err
 		}
-		if bin, err = cloudflared.Install(ctx); err != nil {
+		if bin, err = cloudflared.Install(ctx, ""); err != nil {
 			return err
 		}
 	}

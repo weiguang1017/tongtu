@@ -12,15 +12,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"tongtu/internal/cf"
+	"tongtu/internal/cloudflared"
 	"tongtu/internal/config"
 	"tongtu/internal/runner"
 )
@@ -32,16 +37,21 @@ var staticFS embed.FS
 type Server struct {
 	addr  string
 	token string // 非回环监听时必填
+	open  bool   // 启动后自动打开系统浏览器
+	ring  *logRing
 
-	mu      sync.Mutex
-	running bool
-	stop    context.CancelFunc
-	runErr  error
-	runApps []string // 当前运行的应用名(空=全部启用)
+	mu         sync.Mutex
+	running    bool
+	stop       context.CancelFunc
+	runErr     error
+	runApps    []string // 当前运行的应用名(空=全部启用)
+	installing bool     // cloudflared 正在下载安装
+	installErr string   // 上次自动安装失败原因(供前端展示)
 }
 
 // New 创建面板服务;addr 非回环且 token 为空时报错。
-func New(addr, token string) (*Server, error) {
+// openBrowser 为 true 时启动后自动用系统浏览器打开面板。
+func New(addr, token string, openBrowser bool) (*Server, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("监听地址 %q 不合法: %w", addr, err)
@@ -49,7 +59,7 @@ func New(addr, token string) (*Server, error) {
 	if ip := net.ParseIP(host); (ip == nil || !ip.IsLoopback()) && host != "localhost" && token == "" {
 		return nil, fmt.Errorf("监听非本机地址 %s 时必须设置 --web-token,否则任何人都能改你的配置", addr)
 	}
-	return &Server{addr: addr, token: token}, nil
+	return &Server{addr: addr, token: token, open: openBrowser, ring: newLogRing(2000)}, nil
 }
 
 // ListenAndServe 启动面板,阻塞到 ctx 取消。
@@ -69,11 +79,25 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/domains/", s.auth(s.handleDomainItem))
 	mux.HandleFunc("/api/apps", s.auth(s.handleApps))
 	mux.HandleFunc("/api/apps/", s.auth(s.handleAppItem))
+	mux.HandleFunc("/api/zones", s.auth(s.handleZones))
+	mux.HandleFunc("/api/cloudflared", s.auth(s.handleCloudflared))
+	mux.HandleFunc("/api/cloudflared/install", s.auth(s.handleCloudflaredInstall))
+	mux.HandleFunc("/api/settings", s.auth(s.handleSettings))
+	mux.HandleFunc("/api/logs", s.auth(s.handleLogs))
 	mux.HandleFunc("/api/run", s.auth(s.handleRun))
 	mux.HandleFunc("/api/stop", s.auth(s.handleStop))
 	mux.HandleFunc("/api/status", s.auth(s.handleStatus))
 
-	srv := &http.Server{Addr: s.addr, Handler: mux, ReadHeaderTimeout: 15 * time.Second}
+	// 面板日志与 cloudflared 子进程输出各 tee 一份进环形缓冲,供页面「运行日志」展示
+	log.SetOutput(io.MultiWriter(os.Stderr, s.ring))
+	cloudflared.TeeOutput(s.ring)
+
+	ln, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return fmt.Errorf("监听 %s 失败: %w(端口可能被占用,可用 --addr 换一个)", s.addr, err)
+	}
+
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 15 * time.Second}
 	go func() {
 		<-ctx.Done()
 		s.stopTunnels()
@@ -82,8 +106,19 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		srv.Shutdown(shCtx) //nolint:errcheck
 	}()
 
-	log.Printf("通途管理面板: http://%s/", s.addr)
-	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	// 监听通配地址(0.0.0.0 / ::)时,浏览器打不开该地址,改用回环地址访问
+	urlHost := ln.Addr().String()
+	if h, p, err := net.SplitHostPort(urlHost); err == nil {
+		if ip := net.ParseIP(h); ip != nil && ip.IsUnspecified() {
+			urlHost = net.JoinHostPort("127.0.0.1", p)
+		}
+	}
+	url := "http://" + urlHost + "/"
+	log.Printf("通途管理面板: %s", url)
+	if s.open {
+		openBrowser(url)
+	}
+	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return ctx.Err()
@@ -188,8 +223,12 @@ func (s *Server) handleCreds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Name = strings.ToLower(in.Name)
-	if !config.NameRe.MatchString(in.Name) || in.Token == "" {
-		jsonError(w, http.StatusBadRequest, "name 不合法或缺少 token")
+	if !config.NameRe.MatchString(in.Name) {
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("别名 %q 不合法:只能用小写字母、数字和中划线(-),不能用下划线等其他符号,例如 tongtu-test", in.Name))
+		return
+	}
+	if in.Token == "" {
+		jsonError(w, http.StatusBadRequest, "请粘贴 Cloudflare API Token")
 		return
 	}
 	cfg, err := config.Load()
@@ -398,7 +437,7 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		in.Proto = "http"
 	}
 	if !config.NameRe.MatchString(in.Name) {
-		jsonError(w, http.StatusBadRequest, "name 不合法")
+		jsonError(w, http.StatusBadRequest, fmt.Sprintf("应用名 %q 不合法:只能用小写字母、数字和中划线(-),例如 my-blog", in.Name))
 		return
 	}
 	cfg, err := config.Load()
@@ -513,6 +552,11 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 提前探测 cloudflared,让前端能直接提示「一键安装」而不是启动后才失败
+	if _, err := cloudflared.Find(); err != nil {
+		jsonError(w, http.StatusPreconditionFailed, err.Error())
+		return
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -558,10 +602,164 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	out := map[string]any{"running": s.running, "apps": s.runApps}
+	out := map[string]any{"running": s.running, "apps": s.runApps, "installing": s.installing}
 	if s.runErr != nil {
 		out["last_error"] = s.runErr.Error()
 	}
+	installErr := s.installErr
 	s.mu.Unlock()
+	if bin, err := cloudflared.Find(); err == nil {
+		out["cloudflared"] = map[string]any{"found": true, "path": bin}
+	} else {
+		out["cloudflared"] = map[string]any{"found": false, "install_error": installErr}
+	}
 	jsonOK(w, out)
+}
+
+// ---- /api/zones:列出凭证可见的 Cloudflare Zone(供登记域名时选择) ----
+
+func (s *Server) handleZones(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 GET")
+		return
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	credName := strings.ToLower(r.URL.Query().Get("cred"))
+	if credName == "" && len(cfg.Creds) == 1 {
+		credName = config.SortedNames(cfg.Creds)[0]
+	}
+	cred, ok := cfg.Creds[credName]
+	if !ok {
+		jsonError(w, http.StatusBadRequest, "凭证不存在或未指定(?cred=别名)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+	defer cancel()
+	zones, err := cf.New(cred.Token).ListZones(ctx)
+	if err != nil {
+		jsonError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	type zoneView struct {
+		Name       string `json:"name"`
+		Registered bool   `json:"registered"` // 是否已登记到本地配置
+	}
+	out := make([]zoneView, 0, len(zones))
+	for _, z := range zones {
+		_, exists := cfg.Domains[z.Name]
+		out = append(out, zoneView{z.Name, exists})
+	}
+	jsonOK(w, out)
+}
+
+// ---- /api/cloudflared:探测与一键安装 ----
+
+func (s *Server) handleCloudflared(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 GET")
+		return
+	}
+	s.mu.Lock()
+	installing := s.installing
+	s.mu.Unlock()
+	if bin, err := cloudflared.Find(); err == nil {
+		jsonOK(w, map[string]any{"found": true, "path": bin, "installing": installing})
+	} else {
+		jsonOK(w, map[string]any{"found": false, "installing": installing, "hint": err.Error()})
+	}
+}
+
+func (s *Server) handleCloudflaredInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 POST")
+		return
+	}
+	if bin, err := cloudflared.Find(); err == nil {
+		jsonOK(w, map[string]any{"found": true, "path": bin})
+		return
+	}
+	// 读取用户在设置里配的代理(可为空)
+	proxy := ""
+	if cfg, err := config.Load(); err == nil {
+		proxy = cfg.Settings.Proxy
+	}
+	s.mu.Lock()
+	if s.installing {
+		s.mu.Unlock()
+		jsonError(w, http.StatusConflict, "cloudflared 正在下载中,请稍候")
+		return
+	}
+	s.installing = true
+	s.installErr = ""
+	s.mu.Unlock()
+
+	// 下载放后台执行,不阻塞请求(也不受浏览器断开影响);前端轮询状态即可
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		_, err := cloudflared.Install(ctx, proxy)
+		s.mu.Lock()
+		s.installing = false
+		if err != nil {
+			s.installErr = err.Error()
+			log.Printf("自动安装 cloudflared 失败: %v", err)
+		}
+		s.mu.Unlock()
+	}()
+	jsonOK(w, map[string]any{"installing": true})
+}
+
+// ---- /api/settings:全局设置(目前仅下载代理) ----
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.Load()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		jsonOK(w, map[string]any{"proxy": cfg.Settings.Proxy})
+	case http.MethodPut:
+		var in struct {
+			Proxy string `json:"proxy"`
+		}
+		if err := decodeBody(r, &in); err != nil {
+			jsonError(w, http.StatusBadRequest, "请求体不合法: "+err.Error())
+			return
+		}
+		in.Proxy = strings.TrimSpace(in.Proxy)
+		// 校验代理地址格式(允许留空表示不用代理)
+		if in.Proxy != "" {
+			u, perr := url.Parse(in.Proxy)
+			if perr != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5") {
+				jsonError(w, http.StatusBadRequest, "代理地址需形如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080")
+				return
+			}
+		}
+		cfg.Settings.Proxy = in.Proxy
+		if err := cfg.Save(); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]any{"proxy": in.Proxy})
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 GET / PUT")
+	}
+}
+
+// ---- /api/logs:增量拉取运行日志 ----
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 GET")
+		return
+	}
+	after, _ := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
+	next, lines := s.ring.since(after)
+	jsonOK(w, map[string]any{"next": next, "lines": lines})
 }

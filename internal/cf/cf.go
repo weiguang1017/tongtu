@@ -79,7 +79,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	if !env.Success {
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			return fmt.Errorf("Cloudflare API 鉴权失败 (HTTP %d): %s\n请检查 API Token 是否有效,且具备 Account:Cloudflare Tunnel:Edit 与 Zone:DNS:Edit 权限", resp.StatusCode, joinErrors(env.Errors))
+			return fmt.Errorf("Cloudflare API 鉴权失败 (HTTP %d): %s\n请检查 API Token 是否有效,且具备 Account:Cloudflare Tunnel:Edit 与 Zone:DNS:Edit 权限(用户令牌 cfut_ 与账户令牌 cfat_ 均支持)", resp.StatusCode, joinErrors(env.Errors))
 		}
 		return fmt.Errorf("Cloudflare API 错误 (HTTP %d): %s", resp.StatusCode, joinErrors(env.Errors))
 	}
@@ -105,17 +105,35 @@ func joinErrors(errs []apiError) string {
 	return s
 }
 
-// VerifyToken 校验 API Token 是否有效(GET /user/tokens/verify)。
+// VerifyToken 校验 API Token 是否有效。
+//
+// Cloudflare 有两类令牌:用户令牌(cfut_ 前缀,在 /profile/api-tokens 创建)与
+// 账户令牌(cfat_ 前缀,在带账户 ID 的 URL 下创建)。二者校验端点不同 ——
+// 账户令牌打 /user/tokens/verify 会返回 401,即使令牌完全有效。因此这里先试用户
+// 端点(能拿到 active 状态),失败再回退到一次通用鉴权调用(列账户)确认有效性,
+// 从而对两类令牌都适用。后续建隧道 / 写 DNS 的调用都走 /accounts 与 /zones,两类
+// 令牌一致,无需区分。
 func (c *Client) VerifyToken(ctx context.Context) error {
 	var res struct {
 		Status string `json:"status"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/user/tokens/verify", nil, &res); err != nil {
-		return err
+	userErr := c.do(ctx, http.MethodGet, "/user/tokens/verify", nil, &res)
+	if userErr == nil {
+		if res.Status != "active" {
+			return fmt.Errorf("API Token 状态为 %q(非 active),请在 Cloudflare 控制台检查", res.Status)
+		}
+		return nil
 	}
-	if res.Status != "active" {
-		return fmt.Errorf("API Token 状态为 %q(非 active),请在 Cloudflare 控制台检查", res.Status)
+
+	// 用户端点失败:可能是账户令牌(cfat_)。用一次通用鉴权调用确认令牌本身有效。
+	var accounts []struct {
+		ID string `json:"id"`
 	}
+	if err := c.do(ctx, http.MethodGet, "/accounts?per_page=1", nil, &accounts); err != nil {
+		// 两个端点都失败 —— 令牌确实无效,返回信息更具体的原始错误。
+		return userErr
+	}
+	// 能通过鉴权列出账户 = 令牌有效(账户令牌的正常路径)。
 	return nil
 }
 

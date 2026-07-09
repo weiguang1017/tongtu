@@ -47,12 +47,18 @@ type App struct {
 	Enabled          bool   `json:"enabled"`
 }
 
+// Settings 是通途的全局设置。
+type Settings struct {
+	Proxy string `json:"proxy,omitempty"` // 下载 cloudflared 用的代理,如 http://127.0.0.1:7890
+}
+
 // Config 是通途的全部本地配置。
 type Config struct {
-	Version int               `json:"version"`
-	Creds   map[string]*Cred  `json:"creds"`
-	Domains map[string]*Domain `json:"domains"`
-	Apps    map[string]*App   `json:"apps"`
+	Version  int                `json:"version"`
+	Creds    map[string]*Cred   `json:"creds"`
+	Domains  map[string]*Domain `json:"domains"`
+	Apps     map[string]*App    `json:"apps"`
+	Settings Settings           `json:"settings"`
 
 	path string // 加载来源,Save 时写回
 }
@@ -151,7 +157,7 @@ func (c *Config) Save() error {
 
 // DomainsUsingCred 返回引用某凭证的域名列表(有序)。
 func (c *Config) DomainsUsingCred(cred string) []string {
-	var out []string
+	out := []string{}
 	for name, d := range c.Domains {
 		if d.Cred == cred {
 			out = append(out, name)
@@ -163,7 +169,7 @@ func (c *Config) DomainsUsingCred(cred string) []string {
 
 // AppsUsingDomain 返回 hostname 属于某根域名的应用列表(有序)。
 func (c *Config) AppsUsingDomain(domain string) []string {
-	var out []string
+	out := []string{}
 	for name, a := range c.Apps {
 		if a.Hostname == domain || strings.HasSuffix(a.Hostname, "."+domain) {
 			out = append(out, name)

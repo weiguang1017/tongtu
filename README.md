@@ -7,6 +7,15 @@
 通过你自己的域名(自动 HTTPS)暴露到公网。**纯客户端,无需自建服务器** ——
 公网接入、TLS 证书、DNS 全部由 Cloudflare 免费承担。
 
+**图形界面,开箱即用**:直接运行 `tongtu`(不带任何参数)即启动图形管理界面并自动打开浏览器,
+首次使用有三步向导引导完成全部配置,cloudflared 连接器可一键安装。
+
+```
+tongtu          # 启动图形界面:向导式配置 → 一键启动隧道 → 实时日志
+```
+
+偏好命令行的用户,所有能力也都有对应子命令:
+
 ```
 tongtu app add blog --domain blog.example.com --local 127.0.0.1:8080
 tongtu run
@@ -50,16 +59,23 @@ tongtu 本身只做**编排**(纯 Go 标准库,零第三方依赖):
 ## 前提条件(一次性,约 5 分钟)
 
 1. **域名托管在 Cloudflare**:有一个自己的域名,NS 已指向 Cloudflare(免费套餐即可)。
-2. **API Token**:在 <https://dash.cloudflare.com/profile/api-tokens> 创建自定义 Token,
-   授予两个权限:
-   - **Account → Cloudflare Tunnel → Edit**
-   - **Zone → DNS → Edit**(选择你的域名对应的 Zone)
+2. **API Token**:创建一个自定义 Token,授予两个权限:
+   - **Cloudflare Tunnel → Edit**(Account 作用域;新版面板里显示为 *Argo Tunnel (Legacy)*,是同一权限)
+   - **DNS → Edit**(Zone 作用域;注意别选成 *DNS Settings* 或 *DNS Firewall*,要选 **DNS**)
+
+   两类令牌通途都支持:
+   - **用户令牌**(`cfut_` 前缀):在 <https://dash.cloudflare.com/profile/api-tokens> 创建;
+   - **账户令牌**(`cfat_` 前缀):在 `dash.cloudflare.com/<账户ID>/api-tokens` 创建,
+     Cloudflare 推荐用于长期运行的服务集成(正是通途的场景)。
 3. **cloudflared**:
    ```bash
    brew install cloudflared        # macOS
    # Linux/Windows 见 https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
    ```
-   或者不装也行,`tongtu run --auto-install` 会自动下载官方二进制到 `~/.tongtu/bin/`。
+   或者不装也行:图形界面里点「一键安装」,或 `tongtu run --auto-install`,
+   都会自动下载官方二进制到 `~/.tongtu/bin/`。国内直连 GitHub 受限时,可在图形界面
+   「概览 → ⚙ 下载设置」填本机代理(如 `http://127.0.0.1:7890`),下载即走该代理;
+   或直接 `brew install cloudflared`。
 
 ## 构建
 
@@ -80,7 +96,22 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-## 快速上手
+## 快速上手(图形界面,推荐)
+
+```bash
+tongtu
+```
+
+直接运行即启动本地图形界面并自动打开浏览器(默认 `http://127.0.0.1:7080`,仅本机可访问):
+
+- **新手向导**:首次使用自动弹出,三步走完 凭证 → 域名 → 应用,域名列表直接从你的
+  Cloudflare 账号读取,点选即可;
+- **概览页**:隧道运行状态、cloudflared 连接器状态(未安装可一键安装)、配置概况一目了然;
+- **应用 / 域名 / 凭证页**:全部增删改在弹窗里完成,应用支持启停切换与高级选项
+  (协议、源站 TLS);
+- **运行日志页**:通途与 cloudflared 的实时输出,排查问题不用回终端。
+
+## 快速上手(命令行)
 
 ```bash
 # 1. 保存凭证(在线验证后存入 ~/.tongtu/config.json,权限 0600)
@@ -116,7 +147,8 @@ tongtu run
 | `tongtu app rm <名> [--keep-dns]` | 删除应用(默认连 DNS 记录一起删) |
 | `tongtu run [应用名...]` | 同步 Cloudflare 配置并运行(默认全部已启用应用) |
 | `tongtu status` | 查看各应用 DNS / 隧道就绪状态 |
-| `tongtu web [--addr 127.0.0.1:7080]` | 本地 Web 管理面板 |
+| `tongtu`(无参数) | 启动图形管理界面并自动打开浏览器 |
+| `tongtu web [--addr 127.0.0.1:7080] [--open]` | 启动图形界面(`--open` 自动打开浏览器) |
 
 `app add / update` 参数:
 
@@ -129,14 +161,15 @@ tongtu run
 | `--origin-server-name` | 源站 TLS 握手 SNI(证书域名与访问域名不一致时) | — |
 | `--disable` | 添加后暂不启用 | 关 |
 
-## Web 管理面板
+## 图形界面
 
 ```bash
-tongtu web     # 打开 http://127.0.0.1:7080
+tongtu                  # 等价于 tongtu web --open
+tongtu web              # 只启动服务,不自动开浏览器
 ```
 
-浏览器里完成凭证 / 域名 / 应用的增删改与一键启停。默认只监听本机;
-监听非本机地址时必须同时设置访问令牌:
+浏览器里完成凭证 / 域名 / 应用的增删改、一键启停隧道、cloudflared 一键安装与实时日志查看。
+默认只监听本机(`127.0.0.1:7080`);监听非本机地址时必须同时设置访问令牌:
 
 ```bash
 tongtu web --addr 0.0.0.0:7080 --web-token <随机字符串>

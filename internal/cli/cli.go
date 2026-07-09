@@ -42,6 +42,10 @@ func Execute(ctx context.Context, args []string) (bool, error) {
 func usage() {
 	fmt.Print(`通途 tongtu —— 天堑变通途,家宽即服务器(纯客户端,公网侧由 Cloudflare 承担)
 
+图形界面(推荐):
+  tongtu                        直接运行即启动图形管理界面,并自动打开浏览器
+  tongtu web [--addr 127.0.0.1:7080] [--open]   手动指定监听地址启动
+
 子命令:
   cred   add|list|update|rm     管理 Cloudflare API 凭证
   domain add|list|rm            管理已接入 Cloudflare 的根域名
@@ -49,7 +53,6 @@ func usage() {
   app    add|list|update|enable|disable|rm   管理对外应用
   run    [应用名...]            同步配置并运行(默认全部已启用应用)
   status                        查看各应用就绪状态
-  web    [--addr 127.0.0.1:7080]  本地管理面板
 
 快捷方式(不落配置,临时暴露):
   tongtu -domain example.com -name blog -local 127.0.0.1:8080
