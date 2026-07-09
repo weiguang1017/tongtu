@@ -198,13 +198,17 @@
           <h3>配置概况</h3>
           <div class="big" id="ovCount">-</div>
           <div class="desc">凭证 / 域名 / 应用</div>
-          <div style="margin-top:10px"><button class="mini ghost" onclick="openWizard()">🧭 新手引导</button></div>
+          <div class="desc" id="ovCfgDetail"></div>
+          <div style="margin-top:10px">
+            <button class="mini" onclick="openAppModal(null)">＋ 添加应用</button>
+            <button class="mini ghost" onclick="openWizard()">🧭 新手引导</button>
+          </div>
         </div>
       </div>
 
       <div class="panel">
         <table>
-          <thead><tr><th>应用</th><th>公网地址</th><th>本地服务</th><th>状态</th></tr></thead>
+          <thead><tr><th>应用</th><th>公网地址</th><th>本地服务</th><th>状态</th><th style="text-align:right">操作</th></tr></thead>
           <tbody id="ovApps"></tbody>
         </table>
       </div>
@@ -280,15 +284,21 @@
     <label class="f" id="apCustomWrap" style="display:none"><span>完整域名</span>
       <input id="apCustom" placeholder="blog.example.com" oninput="updateHostPreview()"></label>
     <div class="hostPreview" id="apPreview"></div>
-    <label class="f"><span>本地服务地址</span>
-      <input id="apLocal" placeholder="127.0.0.1:8080"></label>
-    <details class="adv"><summary>高级选项</summary>
+    <div class="row2">
+      <label class="f"><span>本地服务地址</span>
+        <input id="apLocal" placeholder="127.0.0.1:8080"></label>
       <label class="f"><span>本地服务协议</span>
-        <select id="apProto"><option>http</option><option>https</option><option>tcp</option></select></label>
+        <select id="apProto" onchange="protoChanged()">
+          <option value="http">HTTP</option>
+          <option value="https">HTTPS</option>
+          <option value="tcp">TCP</option>
+        </select></label>
+    </div>
+    <div id="apHttpsOpts" style="display:none">
       <label class="chk"><input type="checkbox" id="apNoTLS">跳过源站证书校验(本地是自签名 https 时勾选)</label>
       <label class="f"><span>源站 SNI(可选)</span><input id="apSNI" placeholder="留空即默认"></label>
-      <label class="chk" id="apEnabledWrap"><input type="checkbox" id="apEnabled" checked>启用该应用</label>
-    </details>
+    </div>
+    <label class="chk" id="apEnabledWrap"><input type="checkbox" id="apEnabled" checked>启用该应用</label>
     <div class="btns">
       <button class="ghost" onclick="hide('mdApp')">取消</button>
       <button id="apSave" onclick="submitApp()">保存</button>
@@ -386,7 +396,11 @@
         <label class="f"><span>子域名</span><input id="wzSub" placeholder="如 blog"></label>
         <label class="f"><span>根域名</span><select id="wzDomainSel"></select></label>
       </div>
-      <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
+      <div class="row2">
+        <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
+        <label class="f"><span>本地服务协议</span>
+          <select id="wzProto"><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+      </div>
     </div>
 
     <div id="wiz4" style="display:none">
@@ -507,19 +521,27 @@ async function refreshStatus() {
 
 function renderAll() {
   $('#ovCount').textContent = cfg.creds.length + ' / ' + cfg.domains.length + ' / ' + cfg.apps.length;
+  // 多凭证/多域名时,列出每个域名及其所用凭证,一眼看清对应关系
+  $('#ovCfgDetail').innerHTML = cfg.domains.length
+    ? cfg.domains.map(d => `${esc(d.name)}(凭证 ${esc(d.cred)})`).join('<br>')
+    : '尚未登记域名';
+
+  // 操作按钮不内联 onclick:名称经 data-* 传递,由事件委托统一处理,
+  // 避免字符串插值进 JS 造成的注入面(即使服务端已有 NameRe 校验也不依赖它)
+  const op = (act, name, cls, label) =>
+    `<button class="mini ${cls}" data-act="${act}" data-name="${esc(name)}">${label}</button>`;
 
   const appRow = a => `
     <td><b>${esc(a.name)}</b></td>
     <td><a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">${esc(a.hostname)}</a></td>
     <td><code>${esc(a.proto)}://${esc(a.local)}</code></td>`;
   $('#ovApps').innerHTML = cfg.apps.map(a => `<tr>${appRow(a)}
-      <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td></tr>`).join('')
-    || `<tr><td colspan="4" class="empty">还没有应用 —— 点「新手引导」三步发布你的第一个本地服务</td></tr>`;
-
-  // 操作按钮不内联 onclick:名称经 data-* 传递,由事件委托统一处理,
-  // 避免字符串插值进 JS 造成的注入面(即使服务端已有 NameRe 校验也不依赖它)
-  const op = (act, name, cls, label) =>
-    `<button class="mini ${cls}" data-act="${act}" data-name="${esc(name)}">${label}</button>`;
+      <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td>
+      <td><div class="ops">
+        ${op('edit-app', a.name, 'ghost', '编辑')}
+        ${op('toggle-app', a.name, 'ghost', a.enabled ? '停用' : '启用')}
+      </div></td></tr>`).join('')
+    || `<tr><td colspan="5" class="empty">还没有应用 —— 点「＋ 添加应用」或「新手引导」发布你的第一个本地服务</td></tr>`;
 
   $('#tbApps').innerHTML = cfg.apps.map(a => `<tr>
       <td><b>${esc(a.name)}</b></td>
@@ -649,8 +671,13 @@ function openAppModal(name) {
   $('#apSNI').value = a ? (a.origin_server_name || '') : '';
   $('#apEnabled').checked = a ? !!a.enabled : true;
   $('#apEnabledWrap').style.display = a ? '' : 'none';
+  protoChanged();
   updateHostPreview();
   show('mdApp');
+}
+function protoChanged() {
+  // 证书校验/SNI 仅对 https 源站有意义
+  $('#apHttpsOpts').style.display = $('#apProto').value === 'https' ? '' : 'none';
 }
 function composedHostname() {
   if ($('#apDomain').value === '__custom') return $('#apCustom').value.trim().toLowerCase();
@@ -665,12 +692,13 @@ function updateHostPreview() {
   $('#apPreview').textContent = h ? '公网地址: https://' + h : '';
 }
 async function submitApp() {
+  const proto = $('#apProto').value;
   const body = {
     hostname: composedHostname(),
     local: $('#apLocal').value.trim(),
-    proto: $('#apProto').value,
-    no_tls_verify: $('#apNoTLS').checked,
-    origin_server_name: $('#apSNI').value.trim(),
+    proto,
+    no_tls_verify: proto === 'https' && $('#apNoTLS').checked,
+    origin_server_name: proto === 'https' ? $('#apSNI').value.trim() : '',
     enabled: editingApp ? $('#apEnabled').checked : true,
   };
   $('#apSave').disabled = true;
@@ -811,7 +839,7 @@ async function wizNext() {
       await post('/api/apps', {
         name: $('#wzAppName').value.trim().toLowerCase(),
         hostname: $('#wzSub').value.trim().toLowerCase() + '.' + $('#wzDomainSel').value,
-        local: $('#wzLocal').value.trim(), proto: 'http',
+        local: $('#wzLocal').value.trim(), proto: $('#wzProto').value,
         no_tls_verify: false, origin_server_name: '',
       });
       toast('应用已添加');
