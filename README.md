@@ -77,6 +77,45 @@ tongtu 本身只做**编排**(纯 Go 标准库,零第三方依赖):
    「概览 → ⚙ 下载设置」填本机代理(如 `http://127.0.0.1:7890`),下载即走该代理;
    或直接 `brew install cloudflared`。
 
+## 安装
+
+### 一键安装(Linux / macOS,推荐)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/weiguang1017/tongtu/main/install.sh | sh
+```
+
+脚本会自动识别系统与架构,下载最新 Release、校验 SHA256 并安装到 `/usr/local/bin`
+(需要时会请求 sudo)。可用环境变量定制:
+
+```bash
+TONGTU_VERSION=v0.0.2 sh install.sh                 # 指定版本
+TONGTU_INSTALL_DIR=~/.local/bin sh install.sh      # 自定义安装目录
+https_proxy=http://127.0.0.1:7890 sh install.sh    # 国内网络走代理下载
+```
+
+### 手动下载
+
+到 [Releases](https://github.com/weiguang1017/tongtu/releases) 页面下载对应系统与架构的压缩包,解压后:
+
+```bash
+tar -xzf tongtu_v0.0.2_darwin_arm64.tar.gz
+cd tongtu_v0.0.2_darwin_arm64
+./tongtu        # 注意要加 ./ —— 当前目录默认不在 PATH 里,直接敲 tongtu 会报 command not found
+```
+
+想在任意目录直接使用,把二进制移到 PATH 里的目录即可:
+
+```bash
+sudo mv tongtu /usr/local/bin/
+```
+
+> **macOS 提示**:用浏览器下载的二进制带有 quarantine 隔离标记,首次运行可能提示
+> "无法验证开发者"。执行 `xattr -d com.apple.quarantine ./tongtu` 清除即可;
+> 用 `curl` 下载或一键安装脚本则不会遇到。
+
+Windows 用户下载 zip 包解压后,在解压目录运行 `.\tongtu.exe`,或将其所在目录加入 `Path` 环境变量。
+
 ## 构建
 
 ```bash

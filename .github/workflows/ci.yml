@@ -125,5 +125,5 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" dist/* \
               --title "tongtu ${GITHUB_REF_NAME}" \
-              --notes "自动发布 ${GITHUB_REF_NAME}。下载对应系统与架构的压缩包，解压后即可使用 tongtu。"
+              --notes "自动发布 ${GITHUB_REF_NAME}。一键安装（Linux/macOS）：\`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`；或下载对应系统与架构的压缩包，解压后在解压目录运行 \`./tongtu\`（或将其移入 PATH）。"
           fi
