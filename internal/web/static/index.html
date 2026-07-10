@@ -68,6 +68,7 @@
   .tag { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; }
   .tag.on  { background:var(--accent-weak); color:var(--accent); }
   .tag.off { background:#eef1f4; color:var(--muted); }
+  .tag.warn { background:#fdf3e0; color:#9a6a00; cursor:help; }
   a.host { color:var(--accent); text-decoration:none; }
   a.host:hover { text-decoration:underline; }
 
@@ -78,7 +79,6 @@
   button.ghost { background:#fff; color:var(--fg); border:1px solid var(--line); }
   button.ghost:hover { background:#f7f8fa; }
   button.danger { background:var(--danger-weak); color:var(--danger); }
-  button.danger.solid { background:var(--danger); color:#fff; }
   button.mini { padding:4px 10px; font-size:12.5px; border-radius:6px; }
   .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
   .toolbar .grow { flex:1; }
@@ -171,8 +171,8 @@
   <div id="topbar">
     <h1 id="viewTitle">概览</h1>
     <span class="pill" id="runPill"><span class="dot"></span><span id="runText">未运行</span></span>
-    <button id="btnStart" onclick="startTunnels()">▶ 启动隧道</button>
-    <button id="btnStop" class="ghost" onclick="stopTunnels()" style="display:none">■ 停止</button>
+    <button id="btnStart" onclick="startTunnels()" title="总开关:把所有已启用的应用发布到公网">▶ 启动连接器</button>
+    <button id="btnStop" class="ghost" onclick="stopTunnels()" style="display:none" title="总开关:停止后全部应用离线">■ 停止连接器</button>
   </div>
 
   <main class="body">
@@ -181,9 +181,9 @@
     <section class="view active" id="view-overview">
       <div class="cards">
         <div class="card">
-          <h3>隧道状态</h3>
+          <h3>连接器(总开关)</h3>
           <div class="big" id="ovRun">未运行</div>
-          <div class="desc" id="ovRunDesc">点右上角「启动隧道」开始</div>
+          <div class="desc" id="ovRunDesc">点右上角「启动连接器」开始</div>
           <div class="err" id="ovRunErr" style="display:none"></div>
         </div>
         <div class="card">
@@ -290,15 +290,11 @@
         <input id="apLocal" placeholder="127.0.0.1:8080"></label>
       <label class="f"><span>本地服务协议</span>
         <select id="apProto" onchange="protoChanged()">
-          <option value="auto">自动检测(推荐)</option>
           <option value="http">HTTP</option>
           <option value="https">HTTPS</option>
           <option value="tcp">TCP</option>
         </select></label>
     </div>
-    <div style="font-size:12px;color:var(--muted);margin:-6px 0 12px;line-height:1.6">
-      保存时通途会自动探测本地服务说 HTTP 还是 HTTPS,无需手动选择;
-      访客侧始终是 HTTPS(由 Cloudflare 提供)。仅 TCP 转发等特殊场景才需手动指定。</div>
     <div id="apHttpsOpts" style="display:none">
       <label class="chk"><input type="checkbox" id="apNoTLS">跳过源站证书校验(本地是自签名 https 时勾选)</label>
       <label class="f"><span>源站 SNI(可选)</span><input id="apSNI" placeholder="留空即默认"></label>
@@ -352,33 +348,6 @@
   </div>
 </div>
 
-<!-- ===== 换绑凭证弹窗 ===== -->
-<div class="overlay" id="mdRebind">
-  <div class="modal">
-    <h3>换绑凭证</h3>
-    <div class="hint">为域名 <b id="rbDomain"></b> 更换所用的 Cloudflare 凭证。
-      通途会用新凭证重新验证该域名可见性并刷新缓存,之后该域名下的应用改用新凭证同步。</div>
-    <label class="f"><span>使用凭证</span><select id="rbCred"></select></label>
-    <div class="btns">
-      <button class="ghost" onclick="hide('mdRebind')">取消</button>
-      <button id="rbSave" onclick="submitRebind()">保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===== 通用确认弹窗 ===== -->
-<div class="overlay" id="mdConfirm">
-  <div class="modal">
-    <h3 id="cfTitle">确认操作</h3>
-    <div class="hint" id="cfBody" style="background:var(--danger-weak);color:var(--danger)"></div>
-    <label class="chk" id="cfExtraWrap" style="display:none"><input type="checkbox" id="cfExtra">保留 Cloudflare 上的 DNS 记录(仅删除本地配置)</label>
-    <div class="btns">
-      <button class="ghost" onclick="confirmResolve(false)">取消</button>
-      <button class="danger solid" id="cfOk" onclick="confirmResolve(true)">删除</button>
-    </div>
-  </div>
-</div>
-
 <!-- ===== 设置弹窗(下载代理) ===== -->
 <div class="overlay" id="mdSettings">
   <div class="modal">
@@ -428,9 +397,11 @@
         <label class="f"><span>子域名</span><input id="wzSub" placeholder="如 blog"></label>
         <label class="f"><span>根域名</span><select id="wzDomainSel"></select></label>
       </div>
-      <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
-      <div style="font-size:12px;color:var(--muted);margin:-6px 0 4px;line-height:1.6">
-        本地服务是 HTTP 还是 HTTPS 由通途自动探测,无需关心;访客侧始终是 HTTPS(由 Cloudflare 提供)。</div>
+      <div class="row2">
+        <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
+        <label class="f"><span>本地服务协议</span>
+          <select id="wzProto"><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+      </div>
     </div>
 
     <div id="wiz4" style="display:none">
@@ -438,7 +409,7 @@
       <div class="hint" id="wzCfdHint">正在检测 cloudflared 连接器…</div>
       <div style="text-align:center;margin-bottom:8px">
         <button id="wzInstall" style="display:none" onclick="installCloudflared()">⬇ 一键安装 cloudflared</button>
-        <button id="wzStart" style="display:none" onclick="startTunnels(); hide('mdWiz')">▶ 立即启动隧道</button>
+        <button id="wzStart" style="display:none" onclick="startTunnels(); hide('mdWiz')">▶ 立即启动连接器</button>
       </div>
     </div>
 
@@ -508,17 +479,19 @@ async function refresh() {
 async function refreshStatus() {
   try { status = await api('/api/status'); } catch (e) { return; }
   const on = status.running;
+  const pub = status.published_count || 0;
   $('#runPill').className = 'pill' + (on ? ' on' : '');
-  $('#runText').textContent = on ? '运行中' : '未运行';
+  $('#runText').textContent = on ? (pub ? `运行中 · ${pub} 个应用在线` : '运行中 · 无应用在线') : '未运行';
   $('#btnStart').style.display = on ? 'none' : '';
   $('#btnStop').style.display = on ? '' : 'none';
   $('#ovRun').textContent = on ? '运行中' : '未运行';
   $('#ovRunDesc').textContent = on
-    ? '本地服务已通过 Cloudflare 发布到公网'
-    : (cfg.apps.some(a => a.enabled) ? '点右上角「启动隧道」开始' : '先添加应用,再启动隧道');
+    ? (pub ? `已发布 ${pub} 个应用;单个应用可在下方表格独立启停,即时生效` : '运行中,但当前没有已启用的应用')
+    : (cfg.apps.some(a => a.enabled) ? '点右上角「启动连接器」开始' : '先添加应用,再启动连接器');
   const errEl = $('#ovRunErr');
-  if (status.last_error && !on) { errEl.textContent = '上次运行出错: ' + status.last_error; errEl.style.display = ''; }
+  if (status.last_error) { errEl.textContent = (on ? '同步警告: ' : '上次运行出错: ') + status.last_error; errEl.style.display = ''; }
   else errEl.style.display = 'none';
+  renderApps();
 
   const cfd = status.cloudflared || {};
   if (cfd.found) {
@@ -549,6 +522,53 @@ async function refreshStatus() {
   wizRenderCfd();
 }
 
+// 操作按钮不内联 onclick:名称经 data-* 传递,由事件委托统一处理,
+// 避免字符串插值进 JS 造成的注入面(即使服务端已有 NameRe 校验也不依赖它)
+const op = (act, name, cls, label) =>
+  `<button class="mini ${cls}" data-act="${act}" data-name="${esc(name)}">${label}</button>`;
+
+// 状态列:区分「配置意图」(enabled)与「实际发布状态」(published)。
+// 连接器运行中,停用/删除即时生效;enabled 但未发布说明所在凭证组同步失败。
+function appStateTag(a) {
+  const st = (status.apps_state || {})[a.name] || {};
+  if (status.running) {
+    if (st.published) return '<span class="tag on">已发布</span>';
+    if (a.enabled) return `<span class="tag warn" title="${esc(st.group_error || '正在同步,稍候刷新')}">未发布</span>`;
+    return '<span class="tag off">已停用</span>';
+  }
+  return `<span class="tag off">${a.enabled ? '启用 · 待上线' : '停用'}</span>`;
+}
+
+// 应用两张表跟随配置(15s)与运行状态(3s)双通道刷新,发布状态变化及时可见;
+// 内容未变时跳过重渲染,避免高频轮询导致的闪烁与点击丢失
+let lastAppsRender = '';
+function renderApps() {
+  const key = JSON.stringify([cfg.apps, status.running, status.apps_state]);
+  if (key === lastAppsRender) return;
+  lastAppsRender = key;
+  const ops = a => `
+        ${op('edit-app', a.name, 'ghost', '编辑')}
+        ${op('toggle-app', a.name, 'ghost', a.enabled ? '停用' : '启用')}
+        ${op('del-app', a.name, 'danger', '删除')}`;
+
+  $('#ovApps').innerHTML = cfg.apps.map(a => `<tr>
+      <td><b>${esc(a.name)}</b></td>
+      <td><a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">${esc(a.hostname)}</a></td>
+      <td><code>${esc(a.proto)}://${esc(a.local)}</code></td>
+      <td>${appStateTag(a)}</td>
+      <td><div class="ops">${ops(a)}</div></td></tr>`).join('')
+    || `<tr><td colspan="5" class="empty">还没有应用 —— 点「＋ 添加应用」或「新手引导」发布你的第一个本地服务</td></tr>`;
+
+  $('#tbApps').innerHTML = cfg.apps.map(a => `<tr>
+      <td><b>${esc(a.name)}</b></td>
+      <td><a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">${esc(a.hostname)}</a></td>
+      <td><code>${esc(a.local)}</code></td>
+      <td>${esc(a.proto)}</td>
+      <td>${appStateTag(a)}</td>
+      <td><div class="ops">${ops(a)}</div></td></tr>`).join('')
+    || `<tr><td colspan="6" class="empty">尚无应用</td></tr>`;
+}
+
 function renderAll() {
   $('#ovCount').textContent = cfg.creds.length + ' / ' + cfg.domains.length + ' / ' + cfg.apps.length;
   // 多凭证/多域名时,列出每个域名及其所用凭证,一眼看清对应关系
@@ -556,49 +576,13 @@ function renderAll() {
     ? cfg.domains.map(d => `${esc(d.name)}(凭证 ${esc(d.cred)})`).join('<br>')
     : '尚未登记域名';
 
-  // 操作按钮不内联 onclick:名称经 data-* 传递,由事件委托统一处理,
-  // 避免字符串插值进 JS 造成的注入面(即使服务端已有 NameRe 校验也不依赖它)
-  const op = (act, name, cls, label) =>
-    `<button class="mini ${cls}" data-act="${act}" data-name="${esc(name)}">${label}</button>`;
-
-  // 公网地址列:显示完整 URL(含 https://);tcp 应用浏览器无法直接访问,不带链接
-  const publicURL = a => a.proto === 'tcp'
-    ? `<span class="host">tcp://${esc(a.hostname)}</span> <span class="tag off">TCP</span>`
-    : `<a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">https://${esc(a.hostname)}</a>`;
-
-  const appRow = a => `
-    <td><b>${esc(a.name)}</b></td>
-    <td>${publicURL(a)}</td>
-    <td><code>${esc(a.proto)}://${esc(a.local)}</code></td>`;
-  $('#ovApps').innerHTML = cfg.apps.map(a => `<tr>${appRow(a)}
-      <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td>
-      <td><div class="ops">
-        ${op('edit-app', a.name, 'ghost', '编辑')}
-        ${op('toggle-app', a.name, 'ghost', a.enabled ? '停用' : '启用')}
-      </div></td></tr>`).join('')
-    || `<tr><td colspan="5" class="empty">还没有应用 —— 点「＋ 添加应用」或「新手引导」发布你的第一个本地服务</td></tr>`;
-
-  $('#tbApps').innerHTML = cfg.apps.map(a => `<tr>
-      <td><b>${esc(a.name)}</b></td>
-      <td>${publicURL(a)}</td>
-      <td><code>${esc(a.local)}</code></td>
-      <td>${esc(a.proto)}</td>
-      <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td>
-      <td><div class="ops">
-        ${op('edit-app', a.name, 'ghost', '编辑')}
-        ${op('toggle-app', a.name, 'ghost', a.enabled ? '停用' : '启用')}
-        ${op('del-app', a.name, 'danger', '删除')}
-      </div></td></tr>`).join('')
-    || `<tr><td colspan="6" class="empty">尚无应用</td></tr>`;
+  renderApps();
 
   $('#tbDomains').innerHTML = cfg.domains.map(d => `<tr>
       <td><b>${esc(d.name)}</b></td>
       <td>${esc(d.cred)}</td>
       <td>${esc((d.apps || []).join(', ') || '—')}</td>
-      <td><div class="ops">
-        ${op('rebind-domain', d.name, 'ghost', '换绑凭证')}
-        ${op('del-domain', d.name, 'danger', '移除')}
-      </div></td></tr>`).join('')
+      <td><div class="ops">${op('del-domain', d.name, 'danger', '移除')}</div></td></tr>`).join('')
     || `<tr><td colspan="4" class="empty">尚无域名,先到「凭证」页添加 Token,再回来登记</td></tr>`;
 
   $('#tbCreds').innerHTML = cfg.creds.map(c => `<tr>
@@ -614,34 +598,38 @@ function renderAll() {
 
 // 表格操作的事件委托:data-name 从 DOM 属性读取,不经过任何代码求值
 const TABLE_ACTIONS = {
-  'edit-app':      n => openAppModal(n),
-  'toggle-app':    n => toggleApp(n),
-  'del-app':       n => delApp(n),
-  'rebind-domain': n => openRebindModal(n),
-  'del-domain':    n => delDomain(n),
-  'edit-cred':     n => openCredModal(n),
-  'del-cred':      n => delCred(n),
+  'edit-app':   n => openAppModal(n),
+  'toggle-app': n => toggleApp(n),
+  'del-app':    n => delApp(n),
+  'del-domain': n => delDomain(n),
+  'edit-cred':  n => openCredModal(n),
+  'del-cred':   n => delCred(n),
 };
 document.querySelector('main.body').addEventListener('click', e => {
   const btn = e.target.closest('button[data-act]');
   if (btn && TABLE_ACTIONS[btn.dataset.act]) TABLE_ACTIONS[btn.dataset.act](btn.dataset.name);
 });
 
-/* ---- 启停 ---- */
+/* ---- 连接器总开关 ---- */
 async function startTunnels() {
+  const btn = $('#btnStart'); btn.disabled = true;
   try {
     const r = await post('/api/run', {});
-    toast('隧道已启动: ' + (r.hostnames || []).join(', '));
+    toast('连接器已启动: ' + (r.hostnames || []).join(', '));
   } catch (e) {
     if (e.status === 412) {  // cloudflared 未安装
       toast('cloudflared 未安装,请先在「概览」页一键安装', 'err');
       nav('overview');
     } else toast('启动失败: ' + e.message, 'err');
   }
+  btn.disabled = false;
   refreshStatus();
 }
 async function stopTunnels() {
-  try { await post('/api/stop', {}); toast('隧道已停止'); } catch (e) { toast(e.message, 'err'); }
+  if (!confirm('停止连接器将使全部已发布应用立即离线,确定?')) return;
+  const btn = $('#btnStop'); btn.disabled = true;
+  try { await post('/api/stop', {}); toast('连接器已停止,全部应用已离线'); } catch (e) { toast(e.message, 'err'); }
+  btn.disabled = false;
   refreshStatus();
 }
 
@@ -742,39 +730,41 @@ async function submitApp() {
   };
   $('#apSave').disabled = true;
   try {
-    let r;
-    if (editingApp) { r = await put('/api/apps/' + editingApp, body); }
-    else {
+    const live = status.running ? ',已即时生效' : '';
+    if (editingApp) {
+      const r = await put('/api/apps/' + editingApp, body);
+      if (r.warning) toast(r.warning, 'err'); else toast('应用已更新' + live);
+    } else {
       const name = $('#apName').value.trim().toLowerCase();
       checkName(name, '应用名');
-      r = await post('/api/apps', {name, ...body});
+      const r = await post('/api/apps', {name, ...body});
+      if (r.warning) toast(r.warning, 'err'); else toast('应用已添加' + (status.running ? ',已即时发布' : ''));
     }
-    // proto=auto 时后端回填实际探测结果:未启动给 warning,否则提示探测到的协议
-    if (r && r.warning) toast(r.warning, 'err');
-    else if (proto === 'auto' && r && r.proto) toast((editingApp ? '应用已更新' : '应用已添加') + ',本地服务协议自动探测为 ' + r.proto.toUpperCase());
-    else toast(editingApp ? '应用已更新' : '应用已添加');
     hide('mdApp'); refresh();
   } catch (e) { toast(e.message, 'err'); }
   $('#apSave').disabled = false;
 }
 async function toggleApp(name) {
   const a = cfg.apps.find(x => x.name === name);
+  const disabling = a.enabled;
   try {
-    await put('/api/apps/' + name, {hostname:a.hostname, local:a.local, proto:a.proto,
+    const r = await put('/api/apps/' + name, {hostname:a.hostname, local:a.local, proto:a.proto,
       no_tls_verify:a.no_tls_verify||false, origin_server_name:a.origin_server_name||'', enabled:!a.enabled});
-    toast(a.enabled ? '已停用 ' + name : '已启用 ' + name); refresh();
+    if (r.warning) toast(r.warning, 'err');
+    else if (status.running) toast(disabling
+      ? '已停用 ' + name + ',即时生效(访问该域名将返回 404)'
+      : '已启用 ' + name + ',即时生效');
+    else toast((disabling ? '已停用 ' : '已启用 ') + name + '(启动连接器后生效)');
+    refresh();
   } catch (e) { toast(e.message, 'err'); }
 }
 async function delApp(name) {
-  const keep = await confirmDialog({
-    title: '删除应用 ' + name,
-    body: '将删除应用 ' + name + ',并默认一并删除其在 Cloudflare 上的 DNS 记录。此操作不可撤销。',
-    extra: '保留 Cloudflare 上的 DNS 记录(仅删除本地配置)',
-  });
-  if (keep === false) return;   // 取消
+  const hint = status.running ? '该应用将立即下线,并' : '将';
+  if (!confirm('删除应用 ' + name + '?' + hint + '同时删除其 Cloudflare DNS 记录。')) return;
   try {
-    await api('/api/apps/' + name + (keep === 'keep' ? '?keep_dns=1' : ''), {method:'DELETE'});
-    toast('已删除 ' + name); refresh();
+    const r = await api('/api/apps/' + name, {method:'DELETE'});
+    if (r.warning) toast(r.warning, 'err'); else toast('已删除 ' + name);
+    refresh();
   } catch (e) { toast(e.message, 'err'); }
 }
 
@@ -813,11 +803,7 @@ async function submitDomain() {
   $('#dmSave').disabled = false;
 }
 async function delDomain(name) {
-  const ok = await confirmDialog({
-    title: '移除域名 ' + name,
-    body: '仅从通途本地移除该域名登记,Cloudflare 上的 Zone 与 DNS 记录不受影响。被应用引用时无法移除。',
-  });
-  if (!ok) return;
+  if (!confirm('移除域名 ' + name + '?(Cloudflare 上的 Zone 不受影响)')) return;
   try { await api('/api/domains/' + name, {method:'DELETE'}); toast('已移除 ' + name); refresh(); }
   catch (e) { toast(e.message, 'err'); }
 }
@@ -848,51 +834,9 @@ async function submitCred() {
   $('#crSave').disabled = false;
 }
 async function delCred(name) {
-  const ok = await confirmDialog({
-    title: '删除凭证 ' + name,
-    body: '删除后使用该凭证的域名将无法同步。若仍有域名引用该凭证,删除会被拒绝。',
-  });
-  if (!ok) return;
+  if (!confirm('删除凭证 ' + name + '?')) return;
   try { await api('/api/creds/' + name, {method:'DELETE'}); toast('已删除 ' + name); refresh(); }
   catch (e) { toast(e.message, 'err'); }
-}
-
-/* ---- 通用确认弹窗 ---- */
-let confirmResolve = () => {};
-// 返回 Promise:无 extra 时 true=确认/false=取消;有 extra 时 'keep'=勾选确认/true=确认/false=取消
-function confirmDialog({title, body, extra}) {
-  $('#cfTitle').textContent = title;
-  $('#cfBody').textContent = body;
-  $('#cfExtra').checked = false;
-  $('#cfExtraWrap').style.display = extra ? '' : 'none';
-  if (extra) $('#cfExtraWrap').childNodes[1].textContent = extra;
-  show('mdConfirm');
-  return new Promise(res => {
-    confirmResolve = ok => {
-      hide('mdConfirm');
-      if (!ok) return res(false);
-      res(extra && $('#cfExtra').checked ? 'keep' : true);
-    };
-  });
-}
-
-/* ---- 换绑凭证 ---- */
-let rebindDomain = null;
-function openRebindModal(name) {
-  rebindDomain = name;
-  const d = cfg.domains.find(x => x.name === name);
-  $('#rbDomain').textContent = name;
-  $('#rbCred').innerHTML = cfg.creds.map(c =>
-    `<option ${c.name === d.cred ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
-  show('mdRebind');
-}
-async function submitRebind() {
-  $('#rbSave').disabled = true;
-  try {
-    await put('/api/domains/' + rebindDomain, {cred: $('#rbCred').value});
-    toast('已换绑凭证'); hide('mdRebind'); refresh();
-  } catch (e) { toast(e.message, 'err'); }
-  $('#rbSave').disabled = false;
 }
 
 /* ---- 新手向导 ---- */
@@ -933,16 +877,13 @@ async function wizNext() {
       }
       await refresh(); wizGo(3);
     } else if (wizStep === 3) {
-      const name = $('#wzAppName').value.trim().toLowerCase();
-      checkName(name, '应用名');
-      const r = await post('/api/apps', {
-        name,
+      await post('/api/apps', {
+        name: $('#wzAppName').value.trim().toLowerCase(),
         hostname: $('#wzSub').value.trim().toLowerCase() + '.' + $('#wzDomainSel').value,
-        local: $('#wzLocal').value.trim(), proto: 'auto',
+        local: $('#wzLocal').value.trim(), proto: $('#wzProto').value,
         no_tls_verify: false, origin_server_name: '',
       });
-      if (r.warning) toast(r.warning, 'err');
-      else toast('应用已添加(本地服务协议:' + (r.proto || 'http').toUpperCase() + ',已自动探测)');
+      toast('应用已添加');
       await refresh(); wizGo(4);
     }
   } catch (e) { toast(e.message, 'err'); }
@@ -969,7 +910,7 @@ function wizRenderCfd() {
   if (!$('#mdWiz').classList.contains('show') || wizStep !== 4) return;
   const cfd = status.cloudflared || {};
   if (cfd.found) {
-    $('#wzCfdHint').innerHTML = 'cloudflared 连接器已就绪 ✓<br>点下方按钮启动隧道,几秒后即可通过你的域名访问本地服务。';
+    $('#wzCfdHint').innerHTML = 'cloudflared 连接器已就绪 ✓<br>点下方按钮启动,几秒后即可通过你的域名访问本地服务。';
     $('#wzInstall').style.display = 'none';
     $('#wzStart').style.display = '';
   } else if (status.installing) {

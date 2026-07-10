@@ -10,11 +10,9 @@ import (
 	"fmt"
 	"log"
 	"sort"
-	"sync"
 	"time"
 
 	"tongtu/internal/cf"
-	"tongtu/internal/cloudflared"
 	"tongtu/internal/config"
 )
 
@@ -30,6 +28,15 @@ type group struct {
 	credName string
 	token    string // CF API Token
 	apps     []appEntry
+}
+
+// hostnames 返回组内全部对外域名(按应用名有序,与 apps 一致)。
+func (g *group) hostnames() []string {
+	out := make([]string, 0, len(g.apps))
+	for _, e := range g.apps {
+		out = append(out, e.app.Hostname)
+	}
+	return out
 }
 
 // Plan 描述一次 run 将要做什么,供 CLI 打印确认信息。
@@ -71,7 +78,33 @@ func Build(cfg *config.Config, names []string) (*Plan, error) {
 			selected[name] = a
 		}
 	}
+	groups, err := groupApps(cfg, selected)
+	if err != nil {
+		return nil, err
+	}
+	return &Plan{groups: groups}, nil
+}
 
+// desiredGroups 计算运行中调和(Reconcile)的期望分组:应用需存在且已启用;
+// sel 非空(点名启动)时进一步限定在点名集合内。与 Build 不同,允许结果为
+// 空 —— 全部应用停用是合法的期望状态(各组连接器随之停止,总开关保持打开)。
+func desiredGroups(cfg *config.Config, sel []string) ([]group, error) {
+	selSet := map[string]bool{}
+	for _, n := range sel {
+		selSet[n] = true
+	}
+	selected := map[string]*config.App{}
+	for name, a := range cfg.Apps {
+		if !a.Enabled || (len(sel) > 0 && !selSet[name]) {
+			continue
+		}
+		selected[name] = a
+	}
+	return groupApps(cfg, selected)
+}
+
+// groupApps 把选中的应用按凭证分组并稳定排序。
+func groupApps(cfg *config.Config, selected map[string]*config.App) ([]group, error) {
 	byCred := map[string]*group{}
 	for name, a := range selected {
 		credName, cred, dom, err := cfg.CredForApp(a)
@@ -86,56 +119,37 @@ func Build(cfg *config.Config, names []string) (*Plan, error) {
 		g.apps = append(g.apps, appEntry{name: name, app: a, dom: dom})
 	}
 
-	p := &Plan{}
+	var out []group
 	for _, credName := range config.SortedNames(byCred) {
 		g := byCred[credName]
 		sort.Slice(g.apps, func(i, j int) bool { return g.apps[i].name < g.apps[j].name })
-		p.groups = append(p.groups, *g)
+		out = append(out, *g)
 	}
-	return p, nil
+	return out, nil
 }
 
 // Run 同步 Cloudflare 侧配置后启动 cloudflared,阻塞到 ctx 取消。
+// CLI(tongtu run)入口;管理面板改用 Manager 以支持运行中动态调和,
+// 这里薄封装保持 CLI 行为不变:要么全就绪要么不跑,Ctrl-C 优雅退出。
 func Run(ctx context.Context, plan *Plan) error {
-	bin, err := cloudflared.Find()
-	if err != nil {
+	m := NewManager()
+	if err := m.Start(ctx, plan, nil); err != nil {
 		return err
 	}
-
-	// 先把所有组的 CF 资源同步好(任何一组失败都不启动进程,保持"要么全就绪要么不跑")
-	tokens := make([]string, len(plan.groups))
-	for i := range plan.groups {
-		g := &plan.groups[i]
-		tok, err := syncGroup(ctx, g)
-		if err != nil {
-			return fmt.Errorf("凭证 %s: %w", g.credName, err)
-		}
-		tokens[i] = tok
-	}
-
-	for _, g := range plan.groups {
-		for _, e := range g.apps {
-			log.Printf("✓ 通途已就绪: https://%s -> %s://%s", e.app.Hostname, e.app.Proto, e.app.Local)
-		}
-	}
-
-	// 每组一个 cloudflared,任一退出(ctx 取消)即整体收尾
-	var wg sync.WaitGroup
-	for i := range plan.groups {
-		wg.Add(1)
-		go func(g *group, token string) {
-			defer wg.Done()
-			if err := cloudflared.Run(ctx, bin, token); err != nil && ctx.Err() == nil {
-				log.Printf("凭证 %s 的 cloudflared 异常结束: %v", g.credName, err)
-			}
-		}(&plan.groups[i], tokens[i])
-	}
-	wg.Wait()
+	<-ctx.Done()
+	m.Stop()
 	return ctx.Err()
 }
 
-// syncGroup 为一组应用就绪隧道、ingress 与 DNS,返回隧道运行令牌。
-func syncGroup(ctx context.Context, g *group) (string, error) {
+// syncResult 是 syncGroup 就绪后的关键标识,供进程托管与后续清理使用。
+type syncResult struct {
+	runToken  string // cloudflared 运行令牌
+	accountID string
+	tunnelID  string
+}
+
+// syncGroup 为一组应用就绪隧道、ingress 与 DNS。
+func syncGroup(ctx context.Context, g *group) (syncResult, error) {
 	client := cf.New(g.token)
 	apiCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -146,11 +160,11 @@ func syncGroup(ctx context.Context, g *group) (string, error) {
 	tunnelName := "tongtu-" + g.credName
 	tunnel, err := client.FindTunnel(apiCtx, accountID, tunnelName)
 	if err != nil {
-		return "", err
+		return syncResult{}, err
 	}
 	if tunnel == nil {
 		if tunnel, err = client.CreateTunnel(apiCtx, accountID, tunnelName); err != nil {
-			return "", err
+			return syncResult{}, err
 		}
 		log.Printf("已创建隧道: %s", tunnelName)
 	}
@@ -171,18 +185,31 @@ func syncGroup(ctx context.Context, g *group) (string, error) {
 		rules = append(rules, r)
 	}
 	if err := client.SetIngress(apiCtx, accountID, tunnel.ID, rules); err != nil {
-		return "", err
+		return syncResult{}, err
 	}
 
 	// 3. DNS:每应用一条 CNAME
 	for _, e := range g.apps {
 		if err := client.UpsertTunnelCNAME(apiCtx, e.dom.ZoneID, e.app.Hostname, tunnel.ID); err != nil {
-			return "", err
+			return syncResult{}, err
 		}
 	}
 
 	// 4. 隧道令牌
-	return client.TunnelToken(apiCtx, accountID, tunnel.ID)
+	tok, err := client.TunnelToken(apiCtx, accountID, tunnel.ID)
+	if err != nil {
+		return syncResult{}, err
+	}
+	return syncResult{runToken: tok, accountID: accountID, tunnelID: tunnel.ID}, nil
+}
+
+// clearIngress 清空隧道的 ingress 规则(只留 404 兜底),供组内应用全部
+// 停用/删除时收敛远端状态;隧道与 DNS 记录保留,重新启用可秒级恢复。
+func clearIngress(ctx context.Context, token, accountID, tunnelID string) error {
+	client := cf.New(token)
+	apiCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	return client.SetIngress(apiCtx, accountID, tunnelID, nil)
 }
 
 // RemoveAppDNS 删除某应用的 DNS CNAME(app rm 时调用;隧道保留给其余应用)。

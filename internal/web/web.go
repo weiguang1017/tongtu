@@ -8,7 +8,6 @@ package web
 import (
 	"context"
 	"crypto/subtle"
-	"crypto/tls"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -20,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,14 +40,11 @@ type Server struct {
 	token string // 非回环监听时必填
 	open  bool   // 启动后自动打开系统浏览器
 	ring  *logRing
+	mgr   *runner.Manager // 连接器运行态:总开关 + 运行中动态调和
 
 	mu         sync.Mutex
-	running    bool
-	stop       context.CancelFunc
-	runErr     error
-	runApps    []string // 当前运行的应用名(空=全部启用)
-	installing bool     // cloudflared 正在下载安装
-	installErr string   // 上次自动安装失败原因(供前端展示)
+	installing bool   // cloudflared 正在下载安装
+	installErr string // 上次自动安装失败原因(供前端展示)
 }
 
 // New 创建面板服务;addr 非回环且 token 为空时报错。
@@ -60,7 +57,7 @@ func New(addr, token string, openBrowser bool) (*Server, error) {
 	if ip := net.ParseIP(host); (ip == nil || !ip.IsLoopback()) && host != "localhost" && token == "" {
 		return nil, fmt.Errorf("监听非本机地址 %s 时必须设置 --web-token,否则任何人都能改你的配置", addr)
 	}
-	return &Server{addr: addr, token: token, open: openBrowser, ring: newLogRing(2000)}, nil
+	return &Server{addr: addr, token: token, open: openBrowser, ring: newLogRing(2000), mgr: runner.NewManager()}, nil
 }
 
 // ListenAndServe 启动面板,阻塞到 ctx 取消。
@@ -358,64 +355,30 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDomainItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 DELETE")
+		return
+	}
 	name := strings.ToLower(strings.TrimPrefix(r.URL.Path, "/api/domains/"))
 	cfg, err := config.Load()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	d, ok := cfg.Domains[name]
-	if !ok {
+	if _, ok := cfg.Domains[name]; !ok {
 		jsonError(w, http.StatusNotFound, "域名未登记")
 		return
 	}
-	switch r.Method {
-	case http.MethodPut:
-		// 换绑凭证:用新凭证重新验证该域名可见,并刷新缓存的 zone/account ID
-		var in struct {
-			Cred string `json:"cred"`
-		}
-		if err := decodeBody(r, &in); err != nil || in.Cred == "" {
-			jsonError(w, http.StatusBadRequest, "缺少 cred(要换绑的凭证别名)")
-			return
-		}
-		in.Cred = strings.ToLower(in.Cred)
-		cred, ok := cfg.Creds[in.Cred]
-		if !ok {
-			jsonError(w, http.StatusBadRequest, "凭证 "+in.Cred+" 不存在")
-			return
-		}
-		if in.Cred == d.Cred {
-			jsonOK(w, map[string]string{"ok": name})
-			return
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
-		defer cancel()
-		zone, err := cf.New(cred.Token).FindZone(ctx, name)
-		if err != nil {
-			jsonError(w, http.StatusBadRequest, "凭证 "+in.Cred+" 无法访问该域名: "+err.Error())
-			return
-		}
-		d.Cred, d.ZoneID, d.AccountID = in.Cred, zone.ID, zone.Account.ID
-		if err := cfg.Save(); err != nil {
-			jsonError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		jsonOK(w, map[string]string{"ok": name, "cred": in.Cred})
-	case http.MethodDelete:
-		if used := cfg.AppsUsingDomain(name); len(used) > 0 {
-			jsonError(w, http.StatusConflict, "域名被应用引用: "+strings.Join(used, ", "))
-			return
-		}
-		delete(cfg.Domains, name)
-		if err := cfg.Save(); err != nil {
-			jsonError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		jsonOK(w, map[string]string{"ok": name})
-	default:
-		jsonError(w, http.StatusMethodNotAllowed, "仅支持 PUT / DELETE")
+	if used := cfg.AppsUsingDomain(name); len(used) > 0 {
+		jsonError(w, http.StatusConflict, "域名被应用引用: "+strings.Join(used, ", "))
+		return
 	}
+	delete(cfg.Domains, name)
+	if err := cfg.Save(); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonOK(w, map[string]string{"ok": name})
 }
 
 // ---- /api/apps ----
@@ -438,9 +401,9 @@ func (in *appInput) validate(cfg *config.Config, self string) error {
 		return errors.New("缺少 local")
 	}
 	switch in.Proto {
-	case "http", "https", "tcp", "auto":
+	case "http", "https", "tcp":
 	default:
-		return fmt.Errorf("proto 仅支持 auto/http/https/tcp,收到 %q", in.Proto)
+		return fmt.Errorf("proto 仅支持 http/https/tcp,收到 %q", in.Proto)
 	}
 	if _, _, err := cfg.DomainForHostname(in.Hostname); err != nil {
 		return err
@@ -451,42 +414,6 @@ func (in *appInput) validate(cfg *config.Config, self string) error {
 		}
 	}
 	return nil
-}
-
-// resolveProto 处理 proto=auto:探测本地服务实际说的协议,返回落库值与给用户的提示。
-// 探测很快(TCP 1s + TLS 1.5s),只在保存时发生一次,不影响运行时。
-func resolveProto(in *appInput) (warning string) {
-	if in.Proto != "auto" {
-		return ""
-	}
-	proto, err := probeLocalProto(in.Local)
-	in.Proto = proto
-	if err != nil {
-		return fmt.Sprintf("本地服务 %s 当前未启动,已按 http 配置;若它其实是 https 服务,启动后请编辑应用改为「自动检测」重新探测", in.Local)
-	}
-	// 探测为 https 的本地服务多为自签名证书,默认跳过校验,避免 502
-	if proto == "https" && !in.NoTLSVerify {
-		in.NoTLSVerify = true
-	}
-	return ""
-}
-
-// probeLocalProto 探测 local 地址上的服务是 http 还是 https。
-// 探测不到(服务未启动)时返回 http 与错误,由调用方决定如何提示。
-func probeLocalProto(local string) (string, error) {
-	conn, err := net.DialTimeout("tcp", local, time.Second)
-	if err != nil {
-		return "http", err
-	}
-	conn.Close()
-	// TCP 可达,再试 TLS 握手:成功 = https,失败 = http
-	tlsConn, err := tls.DialWithDialer(&net.Dialer{Timeout: 1500 * time.Millisecond}, "tcp", local,
-		&tls.Config{InsecureSkipVerify: true})
-	if err != nil {
-		return "http", nil
-	}
-	tlsConn.Close()
-	return "https", nil
 }
 
 func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
@@ -505,7 +432,7 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 	in.Name = strings.ToLower(in.Name)
 	in.Hostname = strings.ToLower(in.Hostname)
 	if in.Proto == "" {
-		in.Proto = "auto"
+		in.Proto = "http"
 	}
 	if !config.NameRe.MatchString(in.Name) {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("应用名 %q 不合法:只能用小写字母、数字和中划线(-),例如 my-blog", in.Name))
@@ -524,7 +451,6 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	warning := resolveProto(&in.appInput)
 	enabled := true
 	if in.Enabled != nil {
 		enabled = *in.Enabled
@@ -537,11 +463,7 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := map[string]string{"ok": in.Name, "proto": in.Proto}
-	if warning != "" {
-		out["warning"] = warning
-	}
-	jsonOK(w, out)
+	jsonOKWarn(w, in.Name, s.reconcileAfterChange(cfg))
 }
 
 func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
@@ -571,7 +493,7 @@ func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		warning := resolveProto(&in)
+		oldHostname := a.Hostname
 		a.Hostname, a.Local, a.Proto = in.Hostname, in.Local, in.Proto
 		a.NoTLSVerify, a.OriginServerName = in.NoTLSVerify, in.OriginServerName
 		if in.Enabled != nil {
@@ -581,11 +503,22 @@ func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		out := map[string]string{"ok": name, "proto": in.Proto}
-		if warning != "" {
-			out["warning"] = warning
+		var warnings []string
+		if oldHostname != a.Hostname {
+			// 换了对外域名:旧 hostname 的 CNAME 已无人使用,清掉避免悬空记录
+			old := *a
+			old.Hostname = oldHostname
+			ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+			defer cancel()
+			if err := runner.RemoveAppDNS(ctx, cfg, &old); err != nil {
+				log.Printf("删除旧 DNS 记录 %s 失败: %v", oldHostname, err)
+				warnings = append(warnings, "旧域名 "+oldHostname+" 的 DNS 记录清理失败: "+err.Error())
+			}
 		}
-		jsonOK(w, out)
+		if warn := s.reconcileAfterChange(cfg); warn != "" {
+			warnings = append(warnings, warn)
+		}
+		jsonOKWarn(w, name, strings.Join(warnings, "; "))
 	case http.MethodDelete:
 		keepDNS := r.URL.Query().Get("keep_dns") == "1"
 		if !keepDNS {
@@ -600,7 +533,7 @@ func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		jsonOK(w, map[string]string{"ok": name})
+		jsonOKWarn(w, name, s.reconcileAfterChange(cfg))
 	default:
 		jsonError(w, http.StatusMethodNotAllowed, "仅支持 PUT / DELETE")
 	}
@@ -639,24 +572,18 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.running {
-		jsonError(w, http.StatusConflict, "隧道已在运行,请先停止")
+	// 同步等待首次全量同步(每组 2-4 个 API 调用,秒级),
+	// Cloudflare 侧错误直接回给前端,而不是启动后才在状态里发现
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	if err := s.mgr.Start(ctx, plan, in.Apps); err != nil {
+		if errors.Is(err, runner.ErrAlreadyRunning) {
+			jsonError(w, http.StatusConflict, err.Error())
+		} else {
+			jsonError(w, http.StatusBadGateway, err.Error())
+		}
 		return
 	}
-	runCtx, cancel := context.WithCancel(context.Background())
-	s.running, s.stop, s.runErr, s.runApps = true, cancel, nil, in.Apps
-	go func() {
-		err := runner.Run(runCtx, plan)
-		s.mu.Lock()
-		s.running, s.stop = false, nil
-		if err != nil && !errors.Is(err, context.Canceled) {
-			s.runErr = err
-			log.Printf("隧道运行结束: %v", err)
-		}
-		s.mu.Unlock()
-	}()
 	jsonOK(w, map[string]any{"ok": true, "hostnames": plan.Hostnames()})
 }
 
@@ -670,11 +597,28 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stopTunnels() {
-	s.mu.Lock()
-	if s.stop != nil {
-		s.stop()
+	s.mgr.Stop()
+}
+
+// reconcileAfterChange 在应用配置变更后把新状态即时同步到运行中的隧道,
+// 返回给前端的警告文案(未运行或全部成功时为空)。同步等待:每组只有
+// 少量秒级 API 调用,换来前端能明确区分「已即时生效」与「保存成功但同步失败」。
+func (s *Server) reconcileAfterChange(cfg *config.Config) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if err := s.mgr.Reconcile(ctx, cfg); err != nil {
+		return "配置已保存,但同步到 Cloudflare 失败: " + err.Error()
 	}
-	s.mu.Unlock()
+	return ""
+}
+
+// jsonOKWarn 输出 {"ok": name} 并在有警告时附带 warning 字段。
+func jsonOKWarn(w http.ResponseWriter, name, warning string) {
+	out := map[string]string{"ok": name}
+	if warning != "" {
+		out["warning"] = warning
+	}
+	jsonOK(w, out)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -682,13 +626,44 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusMethodNotAllowed, "仅支持 GET")
 		return
 	}
+	st := s.mgr.Status()
 	s.mu.Lock()
-	out := map[string]any{"running": s.running, "apps": s.runApps, "installing": s.installing}
-	if s.runErr != nil {
-		out["last_error"] = s.runErr.Error()
-	}
-	installErr := s.installErr
+	installing, installErr := s.installing, s.installErr
 	s.mu.Unlock()
+	out := map[string]any{"running": st.Running, "installing": installing}
+
+	// 逐应用给出配置意图(enabled)与实际发布状态(published)
+	appsState := map[string]any{}
+	published := 0
+	if cfg, err := config.Load(); err == nil {
+		for name, a := range cfg.Apps {
+			entry := map[string]any{"enabled": a.Enabled, "published": false}
+			if credName, _, _, err := cfg.CredForApp(a); err == nil {
+				g := st.Groups[credName]
+				if st.Running && g.Alive && slices.Contains(g.Published, a.Hostname) {
+					entry["published"] = true
+					published++
+				}
+				if g.LastError != "" {
+					entry["group_error"] = g.LastError
+				}
+			}
+			appsState[name] = entry
+		}
+	}
+	out["apps_state"] = appsState
+	out["published_count"] = published
+
+	var syncErrs []string
+	for _, name := range config.SortedNames(st.Groups) {
+		if e := st.Groups[name].LastError; e != "" {
+			syncErrs = append(syncErrs, "凭证 "+name+": "+e)
+		}
+	}
+	if len(syncErrs) > 0 {
+		out["last_error"] = strings.Join(syncErrs, "; ")
+	}
+
 	if bin, err := cloudflared.Find(); err == nil {
 		out["cloudflared"] = map[string]any{"found": true, "path": bin}
 	} else {

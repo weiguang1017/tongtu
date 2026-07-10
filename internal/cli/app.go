@@ -178,6 +178,7 @@ func appUpdate(ctx context.Context, args []string) error {
 	if len(seen) == 0 {
 		return fatalUsage("没有要更新的参数")
 	}
+	oldHostname := a.Hostname
 	if seen["domain"] {
 		hostname := strings.ToLower(*f.hostname)
 		if !config.HostnameRe.MatchString(hostname) {
@@ -214,8 +215,17 @@ func appUpdate(ctx context.Context, args []string) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	fmt.Printf("✓ 应用 %s 已更新: https://%s -> %s://%s\n提示: 配置变更在下次 tongtu run 时生效\n", name, a.Hostname, a.Proto, a.Local)
-	_ = ctx
+	if oldHostname != a.Hostname {
+		// 换了对外域名:旧 hostname 的 CNAME 已无人使用,清掉避免悬空记录
+		old := *a
+		old.Hostname = oldHostname
+		if err := runner.RemoveAppDNS(ctx, cfg, &old); err != nil {
+			fmt.Printf("警告: 删除旧 DNS 记录 %s 失败: %v(可在 Cloudflare 控制台手动删除)\n", oldHostname, err)
+		} else {
+			fmt.Printf("已删除旧 DNS 记录: %s\n", oldHostname)
+		}
+	}
+	fmt.Printf("✓ 应用 %s 已更新: https://%s -> %s://%s\n提示: 配置变更在下次 tongtu run 时生效;管理面板运行中修改则即时生效\n", name, a.Hostname, a.Proto, a.Local)
 	return nil
 }
 
@@ -241,9 +251,9 @@ func appSetEnabled(args []string, enabled bool) error {
 		return err
 	}
 	if enabled {
-		fmt.Printf("✓ 应用 %s 已启用\n", name)
+		fmt.Printf("✓ 应用 %s 已启用(下次 tongtu run 生效;管理面板运行中操作则即时生效)\n", name)
 	} else {
-		fmt.Printf("✓ 应用 %s 已停用(下次 tongtu run 不再包含它)\n", name)
+		fmt.Printf("✓ 应用 %s 已停用(下次 tongtu run 不再包含它;管理面板运行中操作则即时下线)\n", name)
 	}
 	return nil
 }
