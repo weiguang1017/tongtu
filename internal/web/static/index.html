@@ -78,6 +78,7 @@
   button.ghost { background:#fff; color:var(--fg); border:1px solid var(--line); }
   button.ghost:hover { background:#f7f8fa; }
   button.danger { background:var(--danger-weak); color:var(--danger); }
+  button.danger.solid { background:var(--danger); color:#fff; }
   button.mini { padding:4px 10px; font-size:12.5px; border-radius:6px; }
   .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
   .toolbar .grow { flex:1; }
@@ -289,11 +290,15 @@
         <input id="apLocal" placeholder="127.0.0.1:8080"></label>
       <label class="f"><span>本地服务协议</span>
         <select id="apProto" onchange="protoChanged()">
+          <option value="auto">自动检测(推荐)</option>
           <option value="http">HTTP</option>
           <option value="https">HTTPS</option>
           <option value="tcp">TCP</option>
         </select></label>
     </div>
+    <div style="font-size:12px;color:var(--muted);margin:-6px 0 12px;line-height:1.6">
+      保存时通途会自动探测本地服务说 HTTP 还是 HTTPS,无需手动选择;
+      访客侧始终是 HTTPS(由 Cloudflare 提供)。仅 TCP 转发等特殊场景才需手动指定。</div>
     <div id="apHttpsOpts" style="display:none">
       <label class="chk"><input type="checkbox" id="apNoTLS">跳过源站证书校验(本地是自签名 https 时勾选)</label>
       <label class="f"><span>源站 SNI(可选)</span><input id="apSNI" placeholder="留空即默认"></label>
@@ -347,6 +352,33 @@
   </div>
 </div>
 
+<!-- ===== 换绑凭证弹窗 ===== -->
+<div class="overlay" id="mdRebind">
+  <div class="modal">
+    <h3>换绑凭证</h3>
+    <div class="hint">为域名 <b id="rbDomain"></b> 更换所用的 Cloudflare 凭证。
+      通途会用新凭证重新验证该域名可见性并刷新缓存,之后该域名下的应用改用新凭证同步。</div>
+    <label class="f"><span>使用凭证</span><select id="rbCred"></select></label>
+    <div class="btns">
+      <button class="ghost" onclick="hide('mdRebind')">取消</button>
+      <button id="rbSave" onclick="submitRebind()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 通用确认弹窗 ===== -->
+<div class="overlay" id="mdConfirm">
+  <div class="modal">
+    <h3 id="cfTitle">确认操作</h3>
+    <div class="hint" id="cfBody" style="background:var(--danger-weak);color:var(--danger)"></div>
+    <label class="chk" id="cfExtraWrap" style="display:none"><input type="checkbox" id="cfExtra">保留 Cloudflare 上的 DNS 记录(仅删除本地配置)</label>
+    <div class="btns">
+      <button class="ghost" onclick="confirmResolve(false)">取消</button>
+      <button class="danger solid" id="cfOk" onclick="confirmResolve(true)">删除</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 设置弹窗(下载代理) ===== -->
 <div class="overlay" id="mdSettings">
   <div class="modal">
@@ -396,11 +428,9 @@
         <label class="f"><span>子域名</span><input id="wzSub" placeholder="如 blog"></label>
         <label class="f"><span>根域名</span><select id="wzDomainSel"></select></label>
       </div>
-      <div class="row2">
-        <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
-        <label class="f"><span>本地服务协议</span>
-          <select id="wzProto"><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
-      </div>
+      <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
+      <div style="font-size:12px;color:var(--muted);margin:-6px 0 4px;line-height:1.6">
+        本地服务是 HTTP 还是 HTTPS 由通途自动探测,无需关心;访客侧始终是 HTTPS(由 Cloudflare 提供)。</div>
     </div>
 
     <div id="wiz4" style="display:none">
@@ -531,9 +561,14 @@ function renderAll() {
   const op = (act, name, cls, label) =>
     `<button class="mini ${cls}" data-act="${act}" data-name="${esc(name)}">${label}</button>`;
 
+  // 公网地址列:显示完整 URL(含 https://);tcp 应用浏览器无法直接访问,不带链接
+  const publicURL = a => a.proto === 'tcp'
+    ? `<span class="host">tcp://${esc(a.hostname)}</span> <span class="tag off">TCP</span>`
+    : `<a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">https://${esc(a.hostname)}</a>`;
+
   const appRow = a => `
     <td><b>${esc(a.name)}</b></td>
-    <td><a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">${esc(a.hostname)}</a></td>
+    <td>${publicURL(a)}</td>
     <td><code>${esc(a.proto)}://${esc(a.local)}</code></td>`;
   $('#ovApps').innerHTML = cfg.apps.map(a => `<tr>${appRow(a)}
       <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td>
@@ -545,7 +580,7 @@ function renderAll() {
 
   $('#tbApps').innerHTML = cfg.apps.map(a => `<tr>
       <td><b>${esc(a.name)}</b></td>
-      <td><a class="host" href="https://${esc(a.hostname)}" target="_blank" rel="noopener">${esc(a.hostname)}</a></td>
+      <td>${publicURL(a)}</td>
       <td><code>${esc(a.local)}</code></td>
       <td>${esc(a.proto)}</td>
       <td><span class="tag ${a.enabled ? 'on' : 'off'}">${a.enabled ? '启用' : '停用'}</span></td>
@@ -560,7 +595,10 @@ function renderAll() {
       <td><b>${esc(d.name)}</b></td>
       <td>${esc(d.cred)}</td>
       <td>${esc((d.apps || []).join(', ') || '—')}</td>
-      <td><div class="ops">${op('del-domain', d.name, 'danger', '移除')}</div></td></tr>`).join('')
+      <td><div class="ops">
+        ${op('rebind-domain', d.name, 'ghost', '换绑凭证')}
+        ${op('del-domain', d.name, 'danger', '移除')}
+      </div></td></tr>`).join('')
     || `<tr><td colspan="4" class="empty">尚无域名,先到「凭证」页添加 Token,再回来登记</td></tr>`;
 
   $('#tbCreds').innerHTML = cfg.creds.map(c => `<tr>
@@ -576,12 +614,13 @@ function renderAll() {
 
 // 表格操作的事件委托:data-name 从 DOM 属性读取,不经过任何代码求值
 const TABLE_ACTIONS = {
-  'edit-app':   n => openAppModal(n),
-  'toggle-app': n => toggleApp(n),
-  'del-app':    n => delApp(n),
-  'del-domain': n => delDomain(n),
-  'edit-cred':  n => openCredModal(n),
-  'del-cred':   n => delCred(n),
+  'edit-app':      n => openAppModal(n),
+  'toggle-app':    n => toggleApp(n),
+  'del-app':       n => delApp(n),
+  'rebind-domain': n => openRebindModal(n),
+  'del-domain':    n => delDomain(n),
+  'edit-cred':     n => openCredModal(n),
+  'del-cred':      n => delCred(n),
 };
 document.querySelector('main.body').addEventListener('click', e => {
   const btn = e.target.closest('button[data-act]');
@@ -703,12 +742,17 @@ async function submitApp() {
   };
   $('#apSave').disabled = true;
   try {
-    if (editingApp) { await put('/api/apps/' + editingApp, body); toast('应用已更新'); }
+    let r;
+    if (editingApp) { r = await put('/api/apps/' + editingApp, body); }
     else {
       const name = $('#apName').value.trim().toLowerCase();
       checkName(name, '应用名');
-      await post('/api/apps', {name, ...body}); toast('应用已添加');
+      r = await post('/api/apps', {name, ...body});
     }
+    // proto=auto 时后端回填实际探测结果:未启动给 warning,否则提示探测到的协议
+    if (r && r.warning) toast(r.warning, 'err');
+    else if (proto === 'auto' && r && r.proto) toast((editingApp ? '应用已更新' : '应用已添加') + ',本地服务协议自动探测为 ' + r.proto.toUpperCase());
+    else toast(editingApp ? '应用已更新' : '应用已添加');
     hide('mdApp'); refresh();
   } catch (e) { toast(e.message, 'err'); }
   $('#apSave').disabled = false;
@@ -722,9 +766,16 @@ async function toggleApp(name) {
   } catch (e) { toast(e.message, 'err'); }
 }
 async function delApp(name) {
-  if (!confirm('删除应用 ' + name + '?将同时删除其 Cloudflare DNS 记录。')) return;
-  try { await api('/api/apps/' + name, {method:'DELETE'}); toast('已删除 ' + name); refresh(); }
-  catch (e) { toast(e.message, 'err'); }
+  const keep = await confirmDialog({
+    title: '删除应用 ' + name,
+    body: '将删除应用 ' + name + ',并默认一并删除其在 Cloudflare 上的 DNS 记录。此操作不可撤销。',
+    extra: '保留 Cloudflare 上的 DNS 记录(仅删除本地配置)',
+  });
+  if (keep === false) return;   // 取消
+  try {
+    await api('/api/apps/' + name + (keep === 'keep' ? '?keep_dns=1' : ''), {method:'DELETE'});
+    toast('已删除 ' + name); refresh();
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 /* ---- 域名弹窗 ---- */
@@ -762,7 +813,11 @@ async function submitDomain() {
   $('#dmSave').disabled = false;
 }
 async function delDomain(name) {
-  if (!confirm('移除域名 ' + name + '?(Cloudflare 上的 Zone 不受影响)')) return;
+  const ok = await confirmDialog({
+    title: '移除域名 ' + name,
+    body: '仅从通途本地移除该域名登记,Cloudflare 上的 Zone 与 DNS 记录不受影响。被应用引用时无法移除。',
+  });
+  if (!ok) return;
   try { await api('/api/domains/' + name, {method:'DELETE'}); toast('已移除 ' + name); refresh(); }
   catch (e) { toast(e.message, 'err'); }
 }
@@ -793,9 +848,51 @@ async function submitCred() {
   $('#crSave').disabled = false;
 }
 async function delCred(name) {
-  if (!confirm('删除凭证 ' + name + '?')) return;
+  const ok = await confirmDialog({
+    title: '删除凭证 ' + name,
+    body: '删除后使用该凭证的域名将无法同步。若仍有域名引用该凭证,删除会被拒绝。',
+  });
+  if (!ok) return;
   try { await api('/api/creds/' + name, {method:'DELETE'}); toast('已删除 ' + name); refresh(); }
   catch (e) { toast(e.message, 'err'); }
+}
+
+/* ---- 通用确认弹窗 ---- */
+let confirmResolve = () => {};
+// 返回 Promise:无 extra 时 true=确认/false=取消;有 extra 时 'keep'=勾选确认/true=确认/false=取消
+function confirmDialog({title, body, extra}) {
+  $('#cfTitle').textContent = title;
+  $('#cfBody').textContent = body;
+  $('#cfExtra').checked = false;
+  $('#cfExtraWrap').style.display = extra ? '' : 'none';
+  if (extra) $('#cfExtraWrap').childNodes[1].textContent = extra;
+  show('mdConfirm');
+  return new Promise(res => {
+    confirmResolve = ok => {
+      hide('mdConfirm');
+      if (!ok) return res(false);
+      res(extra && $('#cfExtra').checked ? 'keep' : true);
+    };
+  });
+}
+
+/* ---- 换绑凭证 ---- */
+let rebindDomain = null;
+function openRebindModal(name) {
+  rebindDomain = name;
+  const d = cfg.domains.find(x => x.name === name);
+  $('#rbDomain').textContent = name;
+  $('#rbCred').innerHTML = cfg.creds.map(c =>
+    `<option ${c.name === d.cred ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  show('mdRebind');
+}
+async function submitRebind() {
+  $('#rbSave').disabled = true;
+  try {
+    await put('/api/domains/' + rebindDomain, {cred: $('#rbCred').value});
+    toast('已换绑凭证'); hide('mdRebind'); refresh();
+  } catch (e) { toast(e.message, 'err'); }
+  $('#rbSave').disabled = false;
 }
 
 /* ---- 新手向导 ---- */
@@ -836,13 +933,16 @@ async function wizNext() {
       }
       await refresh(); wizGo(3);
     } else if (wizStep === 3) {
-      await post('/api/apps', {
-        name: $('#wzAppName').value.trim().toLowerCase(),
+      const name = $('#wzAppName').value.trim().toLowerCase();
+      checkName(name, '应用名');
+      const r = await post('/api/apps', {
+        name,
         hostname: $('#wzSub').value.trim().toLowerCase() + '.' + $('#wzDomainSel').value,
-        local: $('#wzLocal').value.trim(), proto: $('#wzProto').value,
+        local: $('#wzLocal').value.trim(), proto: 'auto',
         no_tls_verify: false, origin_server_name: '',
       });
-      toast('应用已添加');
+      if (r.warning) toast(r.warning, 'err');
+      else toast('应用已添加(本地服务协议:' + (r.proto || 'http').toUpperCase() + ',已自动探测)');
       await refresh(); wizGo(4);
     }
   } catch (e) { toast(e.message, 'err'); }

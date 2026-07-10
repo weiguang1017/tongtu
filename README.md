@@ -146,8 +146,10 @@ tongtu
 - **新手向导**:首次使用自动弹出,三步走完 凭证 → 域名 → 应用,域名列表直接从你的
   Cloudflare 账号读取,点选即可;
 - **概览页**:隧道运行状态、cloudflared 连接器状态(未安装可一键安装)、配置概况一目了然;
-- **应用 / 域名 / 凭证页**:全部增删改在弹窗里完成,应用支持启停切换与高级选项
-  (协议、源站 TLS);
+- **应用 / 域名 / 凭证页**:全部增删改在弹窗里完成,应用支持启停切换与高级选项;
+  域名可换绑凭证,删除有二次确认(应用删除可选保留 Cloudflare DNS 记录);
+- **协议自动探测**:添加应用时协议默认「自动检测」——保存时通途探测本地服务说 HTTP
+  还是 HTTPS 并自动配置,免去手动选错导致的 502(源站 TLS 握手失败);
 - **运行日志页**:通途与 cloudflared 的实时输出,排查问题不用回终端。
 
 ## 快速上手(命令行)
@@ -229,6 +231,9 @@ tongtu -name demo -local 127.0.0.1:3000 -cleanup   # -cleanup: 退出时删除�
 - **访客侧 HTTPS**:证书由 Cloudflare 边缘自动签发、自动续期,零配置;
 - **源站 TLS**(本地服务本身是 HTTPS 时):`--proto https` 连接本地服务;
   自签证书加 `--no-tls-verify`;证书域名与访问域名不一致时用 `--origin-server-name` 指定 SNI。
+- **常见 502(Bad Gateway)**:日志里出现 `tls: first record does not look like a TLS handshake`,
+  说明源站协议配反了——本地是明文 HTTP 却按 HTTPS 连接。图形界面把应用协议改为「自动检测」
+  重新保存即可自动纠正;CLI 则 `tongtu app update <名> --proto http`。
 
 ## 开机自启(macOS)
 

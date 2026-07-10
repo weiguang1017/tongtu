@@ -8,6 +8,7 @@ package web
 import (
 	"context"
 	"crypto/subtle"
+	"crypto/tls"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -357,30 +358,64 @@ func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDomainItem(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		jsonError(w, http.StatusMethodNotAllowed, "仅支持 DELETE")
-		return
-	}
 	name := strings.ToLower(strings.TrimPrefix(r.URL.Path, "/api/domains/"))
 	cfg, err := config.Load()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, ok := cfg.Domains[name]; !ok {
+	d, ok := cfg.Domains[name]
+	if !ok {
 		jsonError(w, http.StatusNotFound, "域名未登记")
 		return
 	}
-	if used := cfg.AppsUsingDomain(name); len(used) > 0 {
-		jsonError(w, http.StatusConflict, "域名被应用引用: "+strings.Join(used, ", "))
-		return
+	switch r.Method {
+	case http.MethodPut:
+		// 换绑凭证:用新凭证重新验证该域名可见,并刷新缓存的 zone/account ID
+		var in struct {
+			Cred string `json:"cred"`
+		}
+		if err := decodeBody(r, &in); err != nil || in.Cred == "" {
+			jsonError(w, http.StatusBadRequest, "缺少 cred(要换绑的凭证别名)")
+			return
+		}
+		in.Cred = strings.ToLower(in.Cred)
+		cred, ok := cfg.Creds[in.Cred]
+		if !ok {
+			jsonError(w, http.StatusBadRequest, "凭证 "+in.Cred+" 不存在")
+			return
+		}
+		if in.Cred == d.Cred {
+			jsonOK(w, map[string]string{"ok": name})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+		defer cancel()
+		zone, err := cf.New(cred.Token).FindZone(ctx, name)
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "凭证 "+in.Cred+" 无法访问该域名: "+err.Error())
+			return
+		}
+		d.Cred, d.ZoneID, d.AccountID = in.Cred, zone.ID, zone.Account.ID
+		if err := cfg.Save(); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]string{"ok": name, "cred": in.Cred})
+	case http.MethodDelete:
+		if used := cfg.AppsUsingDomain(name); len(used) > 0 {
+			jsonError(w, http.StatusConflict, "域名被应用引用: "+strings.Join(used, ", "))
+			return
+		}
+		delete(cfg.Domains, name)
+		if err := cfg.Save(); err != nil {
+			jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		jsonOK(w, map[string]string{"ok": name})
+	default:
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 PUT / DELETE")
 	}
-	delete(cfg.Domains, name)
-	if err := cfg.Save(); err != nil {
-		jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	jsonOK(w, map[string]string{"ok": name})
 }
 
 // ---- /api/apps ----
@@ -403,9 +438,9 @@ func (in *appInput) validate(cfg *config.Config, self string) error {
 		return errors.New("缺少 local")
 	}
 	switch in.Proto {
-	case "http", "https", "tcp":
+	case "http", "https", "tcp", "auto":
 	default:
-		return fmt.Errorf("proto 仅支持 http/https/tcp,收到 %q", in.Proto)
+		return fmt.Errorf("proto 仅支持 auto/http/https/tcp,收到 %q", in.Proto)
 	}
 	if _, _, err := cfg.DomainForHostname(in.Hostname); err != nil {
 		return err
@@ -416,6 +451,42 @@ func (in *appInput) validate(cfg *config.Config, self string) error {
 		}
 	}
 	return nil
+}
+
+// resolveProto 处理 proto=auto:探测本地服务实际说的协议,返回落库值与给用户的提示。
+// 探测很快(TCP 1s + TLS 1.5s),只在保存时发生一次,不影响运行时。
+func resolveProto(in *appInput) (warning string) {
+	if in.Proto != "auto" {
+		return ""
+	}
+	proto, err := probeLocalProto(in.Local)
+	in.Proto = proto
+	if err != nil {
+		return fmt.Sprintf("本地服务 %s 当前未启动,已按 http 配置;若它其实是 https 服务,启动后请编辑应用改为「自动检测」重新探测", in.Local)
+	}
+	// 探测为 https 的本地服务多为自签名证书,默认跳过校验,避免 502
+	if proto == "https" && !in.NoTLSVerify {
+		in.NoTLSVerify = true
+	}
+	return ""
+}
+
+// probeLocalProto 探测 local 地址上的服务是 http 还是 https。
+// 探测不到(服务未启动)时返回 http 与错误,由调用方决定如何提示。
+func probeLocalProto(local string) (string, error) {
+	conn, err := net.DialTimeout("tcp", local, time.Second)
+	if err != nil {
+		return "http", err
+	}
+	conn.Close()
+	// TCP 可达,再试 TLS 握手:成功 = https,失败 = http
+	tlsConn, err := tls.DialWithDialer(&net.Dialer{Timeout: 1500 * time.Millisecond}, "tcp", local,
+		&tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		return "http", nil
+	}
+	tlsConn.Close()
+	return "https", nil
 }
 
 func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
@@ -434,7 +505,7 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 	in.Name = strings.ToLower(in.Name)
 	in.Hostname = strings.ToLower(in.Hostname)
 	if in.Proto == "" {
-		in.Proto = "http"
+		in.Proto = "auto"
 	}
 	if !config.NameRe.MatchString(in.Name) {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("应用名 %q 不合法:只能用小写字母、数字和中划线(-),例如 my-blog", in.Name))
@@ -453,6 +524,7 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	warning := resolveProto(&in.appInput)
 	enabled := true
 	if in.Enabled != nil {
 		enabled = *in.Enabled
@@ -465,7 +537,11 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	jsonOK(w, map[string]string{"ok": in.Name})
+	out := map[string]string{"ok": in.Name, "proto": in.Proto}
+	if warning != "" {
+		out["warning"] = warning
+	}
+	jsonOK(w, out)
 }
 
 func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
@@ -495,6 +571,7 @@ func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		warning := resolveProto(&in)
 		a.Hostname, a.Local, a.Proto = in.Hostname, in.Local, in.Proto
 		a.NoTLSVerify, a.OriginServerName = in.NoTLSVerify, in.OriginServerName
 		if in.Enabled != nil {
@@ -504,7 +581,11 @@ func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		jsonOK(w, map[string]string{"ok": name})
+		out := map[string]string{"ok": name, "proto": in.Proto}
+		if warning != "" {
+			out["warning"] = warning
+		}
+		jsonOK(w, out)
 	case http.MethodDelete:
 		keepDNS := r.URL.Query().Get("keep_dns") == "1"
 		if !keepDNS {
