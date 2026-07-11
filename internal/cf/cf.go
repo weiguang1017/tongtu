@@ -237,9 +237,13 @@ type OriginRequest struct {
 }
 
 // SetIngress 全量覆盖写入隧道的 ingress 规则(远程配置模式)。
-// 最后一条必须是无 hostname 的兜底规则,调用方无需自带,这里自动补上 404。
-func (c *Client) SetIngress(ctx context.Context, accountID, tunnelID string, rules []IngressRule) error {
-	rules = append(rules, IngressRule{Service: "http_status:404"})
+// 最后一条必须是无 hostname 的兜底规则,调用方无需自带,这里自动补上:
+// fallback 非空时指向它(如本机宣传页服务),否则返回 404。
+func (c *Client) SetIngress(ctx context.Context, accountID, tunnelID string, rules []IngressRule, fallback string) error {
+	if fallback == "" {
+		fallback = "http_status:404"
+	}
+	rules = append(rules, IngressRule{Service: fallback})
 	body := map[string]any{"config": map[string]any{"ingress": rules}}
 	path := fmt.Sprintf("/accounts/%s/cfd_tunnel/%s/configurations", accountID, tunnelID)
 	return c.do(ctx, http.MethodPut, path, body, nil)

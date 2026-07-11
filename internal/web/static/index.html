@@ -287,7 +287,7 @@
     <div class="hostPreview" id="apPreview"></div>
     <div class="row2">
       <label class="f"><span>本地服务地址</span>
-        <input id="apLocal" placeholder="127.0.0.1:8080"></label>
+        <input id="apLocal" placeholder="127.0.0.1:8080 或 192.168.1.10:5000"></label>
       <label class="f"><span>本地服务协议</span>
         <select id="apProto" onchange="protoChanged()">
           <option value="http">HTTP</option>
@@ -391,14 +391,14 @@
     </div>
 
     <div id="wiz3" style="display:none">
-      <div class="hint">把一个本地端口映射到子域名。例如本机 <code>127.0.0.1:8080</code> 上的网页服务 → <code>blog.你的域名</code>。</div>
+      <div class="hint">把一个服务地址映射到子域名。例如本机 <code>127.0.0.1:8080</code> 的网页服务 → <code>blog.你的域名</code>;局域网里本机能访问的其他设备也行,如 NAS 的 <code>192.168.1.10:5000</code>。</div>
       <label class="f"><span>应用名称</span><input id="wzAppName" placeholder="如 blog" oninput="wzSyncSub()"></label>
       <div class="row2">
         <label class="f"><span>子域名</span><input id="wzSub" placeholder="如 blog"></label>
         <label class="f"><span>根域名</span><select id="wzDomainSel"></select></label>
       </div>
       <div class="row2">
-        <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080"></label>
+        <label class="f"><span>本地服务地址</span><input id="wzLocal" placeholder="127.0.0.1:8080 或 192.168.1.10:5000"></label>
         <label class="f"><span>本地服务协议</span>
           <select id="wzProto"><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
       </div>
@@ -752,15 +752,15 @@ async function toggleApp(name) {
       no_tls_verify:a.no_tls_verify||false, origin_server_name:a.origin_server_name||'', enabled:!a.enabled});
     if (r.warning) toast(r.warning, 'err');
     else if (status.running) toast(disabling
-      ? '已停用 ' + name + ',即时生效(访问该域名将返回 404)'
+      ? '已停用 ' + name + ',即时生效(访问该域名将显示通途介绍页)'
       : '已启用 ' + name + ',即时生效');
     else toast((disabling ? '已停用 ' : '已启用 ') + name + '(启动连接器后生效)');
     refresh();
   } catch (e) { toast(e.message, 'err'); }
 }
 async function delApp(name) {
-  const hint = status.running ? '该应用将立即下线,并' : '将';
-  if (!confirm('删除应用 ' + name + '?' + hint + '同时删除其 Cloudflare DNS 记录。')) return;
+  const hint = status.running ? '该应用将立即下线,' : '';
+  if (!confirm('删除应用 ' + name + '?' + hint + '其域名将改为显示通途介绍页(DNS 记录保留,可随时复用)。')) return;
   try {
     const r = await api('/api/apps/' + name, {method:'DELETE'});
     if (r.warning) toast(r.warning, 'err'); else toast('已删除 ' + name);

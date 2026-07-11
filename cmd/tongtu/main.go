@@ -81,7 +81,7 @@ func quickMode(ctx context.Context) {
 	flag.StringVar(&a.cfToken, "cf-token", "", "Cloudflare API Token(也可用环境变量 TONGTU_CF_TOKEN)")
 	flag.StringVar(&a.domain, "domain", "", "根域名,如 example.com,需已托管在 Cloudflare(也可用环境变量 TONGTU_DOMAIN)")
 	flag.StringVar(&a.name, "name", "", "子域名,如 blog(必填)")
-	flag.StringVar(&a.local, "local", "127.0.0.1:8080", "要暴露的本地服务地址")
+	flag.StringVar(&a.local, "local", "127.0.0.1:8080", "要暴露的服务地址,本机或内网可达地址均可,如 127.0.0.1:8080、192.168.1.10:5000")
 	flag.StringVar(&a.scheme, "proto", "http", "本地服务协议: http / https / tcp")
 	flag.BoolVar(&a.cleanup, "cleanup", false, "退出时删除 Cloudflare 上的隧道与 DNS 记录(默认保留以便复用)")
 	flag.BoolVar(&a.autoInstall, "auto-install", false, "未找到 cloudflared 时自动下载官方二进制到 ~/.tongtu/bin/")
@@ -177,7 +177,7 @@ func (a *quickApp) run(ctx context.Context) error {
 	service := a.scheme + "://" + a.local
 	if err := client.SetIngress(apiCtx, zone.Account.ID, tunnel.ID, []cf.IngressRule{
 		{Hostname: fqdn, Service: service},
-	}); err != nil {
+	}, ""); err != nil {
 		return err
 	}
 

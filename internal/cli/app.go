@@ -49,7 +49,7 @@ func newAppFlags(name string) *appFlags {
 	return &appFlags{
 		fs:               fs,
 		hostname:         fs.String("domain", "", "对外完整域名,如 blog.example.com(add 必填)"),
-		local:            fs.String("local", "", "本地服务地址,如 127.0.0.1:8080(add 必填)"),
+		local:            fs.String("local", "", "要转发到的服务地址 host:port,本机或内网可达地址均可,如 127.0.0.1:8080、192.168.1.10:5000(add 必填)"),
 		proto:            fs.String("proto", "http", "本地服务协议: http / https / tcp"),
 		noTLSVerify:      fs.Bool("no-tls-verify", false, "源站为自签 HTTPS 证书时跳过校验"),
 		originServerName: fs.String("origin-server-name", "", "源站 TLS 握手使用的 SNI(源站证书域名与访问域名不一致时用)"),
@@ -261,10 +261,10 @@ func appSetEnabled(args []string, enabled bool) error {
 func appRm(ctx context.Context, args []string) error {
 	name, rest := splitName(args)
 	fs := flag.NewFlagSet("app rm", flag.ExitOnError)
-	keepDNS := fs.Bool("keep-dns", false, "保留 Cloudflare 上的 DNS 记录")
+	purgeDNS := fs.Bool("purge-dns", false, "同时删除 Cloudflare 上的 DNS 记录(默认保留,访问该域名显示通途介绍页)")
 	fs.Parse(rest) //nolint:errcheck
 	if name == "" || fs.NArg() != 0 {
-		return fatalUsage("用法: tongtu app rm <名称> [--keep-dns]")
+		return fatalUsage("用法: tongtu app rm <名称> [--purge-dns]")
 	}
 
 	cfg, err := loadConfig()
@@ -276,7 +276,7 @@ func appRm(ctx context.Context, args []string) error {
 		return fmt.Errorf("应用 %q 不存在", name)
 	}
 
-	if !*keepDNS {
+	if *purgeDNS {
 		if err := runner.RemoveAppDNS(ctx, cfg, a); err != nil {
 			fmt.Printf("警告: 删除 DNS 记录 %s 失败: %v(可在 Cloudflare 控制台手动删除)\n", a.Hostname, err)
 		} else {
@@ -287,6 +287,10 @@ func appRm(ctx context.Context, args []string) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	fmt.Printf("✓ 应用 %s 已删除\n提示: 隧道 ingress 在下次 tongtu run 时同步收敛\n", name)
+	if *purgeDNS {
+		fmt.Printf("✓ 应用 %s 已删除\n提示: 隧道 ingress 在下次 tongtu run 时同步收敛\n", name)
+	} else {
+		fmt.Printf("✓ 应用 %s 已删除(DNS 保留,连接器运行期间访问 https://%s 将显示通途介绍页;彻底清理加 --purge-dns)\n", name, a.Hostname)
+	}
 	return nil
 }

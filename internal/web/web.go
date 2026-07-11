@@ -520,8 +520,9 @@ func (s *Server) handleAppItem(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonOKWarn(w, name, strings.Join(warnings, "; "))
 	case http.MethodDelete:
-		keepDNS := r.URL.Query().Get("keep_dns") == "1"
-		if !keepDNS {
+		// 默认保留 DNS 记录:域名继续解析到隧道,访客看到通途宣传页
+		// 而不是无法访问;?purge_dns=1 时才连 DNS 一起清理。
+		if r.URL.Query().Get("purge_dns") == "1" {
 			ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 			defer cancel()
 			if err := runner.RemoveAppDNS(ctx, cfg, a); err != nil {

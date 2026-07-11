@@ -22,6 +22,93 @@ tongtu run
 ✓ 通途已就绪: https://blog.example.com -> http://127.0.0.1:8080
 ```
 
+## 一键安装(Linux / macOS,推荐)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/weiguang1017/tongtu/main/install.sh | sh
+```
+
+脚本会自动识别系统与架构,下载最新 Release、校验 SHA256 并安装到 `/usr/local/bin`
+(需要时会请求 sudo)。可用环境变量定制:
+
+```bash
+TONGTU_VERSION=v0.0.2 sh install.sh                 # 指定版本
+TONGTU_INSTALL_DIR=~/.local/bin sh install.sh      # 自定义安装目录
+https_proxy=http://127.0.0.1:7890 sh install.sh    # 国内网络走代理下载
+```
+
+<details>
+<summary><b>手动下载安装(含 Windows)</b></summary>
+
+到 [Releases](https://github.com/weiguang1017/tongtu/releases) 页面下载对应系统与架构的压缩包,解压后:
+
+```bash
+tar -xzf tongtu_v0.0.2_darwin_arm64.tar.gz
+cd tongtu_v0.0.2_darwin_arm64
+./tongtu        # 注意要加 ./ —— 当前目录默认不在 PATH 里,直接敲 tongtu 会报 command not found
+```
+
+想在任意目录直接使用,把二进制移到 PATH 里的目录即可:
+
+```bash
+sudo mv tongtu /usr/local/bin/
+```
+
+> **macOS 提示**:用浏览器下载的二进制带有 quarantine 隔离标记,首次运行可能提示
+> "无法验证开发者"。执行 `xattr -d com.apple.quarantine ./tongtu` 清除即可;
+> 用 `curl` 下载或一键安装脚本则不会遇到。
+
+Windows 用户下载 zip 包解压后,在解压目录运行 `.\tongtu.exe`,或将其所在目录加入 `Path` 环境变量。
+
+</details>
+
+## 快速上手:三步把本地服务发布到公网
+
+> 准备工作(一次性,约 5 分钟):域名托管在 Cloudflare + 一个 API Token,
+> 详见下方[前提条件](#前提条件一次性约-5-分钟)。
+
+### 第 1 步 · 启动图形界面,跟着向导走
+
+```bash
+tongtu
+```
+
+自动打开浏览器管理面板(默认 `http://127.0.0.1:7080`,仅本机可访问)。
+首次使用自动弹出三步向导:粘贴 Cloudflare API Token → 选择域名(直接从你的
+Cloudflare 账号读取,点选即可)→ 映射本地服务:
+
+![新手向导:添加凭证](docs/images/gui-wizard.png)
+
+### 第 2 步 · 添加应用
+
+填一个应用名和子域名、写上要转发的服务地址,公网地址实时预览。
+服务地址不限本机:`127.0.0.1:8080` 或局域网里任何这台机器能访问的地址
+(如 NAS 的 `192.168.1.10:5000`)都可以。
+协议默认「自动检测」——保存时通途会探测本地服务说 HTTP 还是 HTTPS 并自动配置:
+
+![添加应用弹窗](docs/images/gui-app-add.png)
+
+### 第 3 步 · 一键启动连接器
+
+点右上角「▶ 启动连接器」。cloudflared 未安装?概览页可一键安装。
+几秒后即可通过 `https://应用名.你的域名.com` 访问本地服务。
+
+## 展示效果
+
+**运行中的概览页**:隧道状态、连接器状态、配置概况一目了然,每个应用可独立启停、即时生效:
+
+![运行中的概览页](docs/images/gui-overview.png)
+
+**应用管理**:增删改都在弹窗里完成,支持编辑、停用/启用、删除,连接器运行中操作即时同步到 Cloudflare:
+
+![应用管理列表](docs/images/gui-apps.png)
+
+**应用下线兜底页**:应用被停用或删除后,其子域名不会变成生硬的 404 ——
+访客会看到一张自动生成的通途介绍页(适用人群、典型场景、如何安装使用),
+重新启用应用后秒级恢复原服务:
+
+![应用下线后的宣传页](docs/images/offline-page.png)
+
 ## 命名与 SLOGAN
 
 - **名称**:通途(TongTu)。取自"一桥飞架南北,天堑变通途"——家庭内网与公网之间
@@ -48,13 +135,17 @@ tongtu 本身只做**编排**(纯 Go 标准库,零第三方依赖):
 
 1. 调 Cloudflare API 创建(或复用)一条 Cloudflare Tunnel(每个凭证一条,所有应用共享);
 2. 写入 ingress 规则:每个应用一条,如 `blog.example.com → http://127.0.0.1:8080`;
+   兜底规则指向本机的「应用已下线」介绍页;
 3. 创建 DNS CNAME:`blog → <tunnel_id>.cfargotunnel.com`(代理开启,TLS 自动签发);
 4. 启动并托管 `cloudflared` 子进程维持隧道连接(意外退出自动重启,指数退避)。
 
 - cloudflared **主动外连** Cloudflare,家里不需要公网 IP、不需要路由器端口映射;
 - HTTPS 由 Cloudflare 边缘统一卸载,本地服务零证书配置;
+- 转发目标不限于本机 —— 只要是 tongtu 所在机器能访问的地址即可,`--local` 可填
+  `127.0.0.1:8080`,也可填 `192.168.1.10:5000` 这类内网其他主机(路由器、NAS、打印机…);
 - 原生支持 WebSocket / SSE / 长连接(HTTP/2 + QUIC);
-- Cloudflare Tunnel 免费、不限流量。
+- Cloudflare Tunnel 免费、不限流量;
+- 应用**停用或删除**后 DNS 保留,访客落到介绍页而不是无法访问;重新启用秒级恢复。
 
 ## 前提条件(一次性,约 5 分钟)
 
@@ -77,80 +168,29 @@ tongtu 本身只做**编排**(纯 Go 标准库,零第三方依赖):
    「概览 → ⚙ 下载设置」填本机代理(如 `http://127.0.0.1:7890`),下载即走该代理;
    或直接 `brew install cloudflared`。
 
-## 安装
+## 图形界面功能一览
 
-### 一键安装(Linux / macOS,推荐)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/weiguang1017/tongtu/main/install.sh | sh
-```
-
-脚本会自动识别系统与架构,下载最新 Release、校验 SHA256 并安装到 `/usr/local/bin`
-(需要时会请求 sudo)。可用环境变量定制:
-
-```bash
-TONGTU_VERSION=v0.0.2 sh install.sh                 # 指定版本
-TONGTU_INSTALL_DIR=~/.local/bin sh install.sh      # 自定义安装目录
-https_proxy=http://127.0.0.1:7890 sh install.sh    # 国内网络走代理下载
-```
-
-### 手动下载
-
-到 [Releases](https://github.com/weiguang1017/tongtu/releases) 页面下载对应系统与架构的压缩包,解压后:
-
-```bash
-tar -xzf tongtu_v0.0.2_darwin_arm64.tar.gz
-cd tongtu_v0.0.2_darwin_arm64
-./tongtu        # 注意要加 ./ —— 当前目录默认不在 PATH 里,直接敲 tongtu 会报 command not found
-```
-
-想在任意目录直接使用,把二进制移到 PATH 里的目录即可:
-
-```bash
-sudo mv tongtu /usr/local/bin/
-```
-
-> **macOS 提示**:用浏览器下载的二进制带有 quarantine 隔离标记,首次运行可能提示
-> "无法验证开发者"。执行 `xattr -d com.apple.quarantine ./tongtu` 清除即可;
-> 用 `curl` 下载或一键安装脚本则不会遇到。
-
-Windows 用户下载 zip 包解压后,在解压目录运行 `.\tongtu.exe`,或将其所在目录加入 `Path` 环境变量。
-
-## 构建
-
-```bash
-make build     # 产出 bin/tongtu
-make linux     # 交叉编译 bin/tongtu-linux-amd64 / arm64
-make vet
-```
-
-## 自动构建与发布
-
-GitHub Actions 会在推送代码或提交 PR 时自动执行测试、`go vet` 和编译。
-推送 `v*` 标签会自动生成 Linux / macOS / Windows 的 amd64、arm64 安装包,
-并发布到 GitHub Release:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-## 快速上手(图形界面,推荐)
-
-```bash
-tongtu
-```
-
-直接运行即启动本地图形界面并自动打开浏览器(默认 `http://127.0.0.1:7080`,仅本机可访问):
-
-- **新手向导**:首次使用自动弹出,三步走完 凭证 → 域名 → 应用,域名列表直接从你的
-  Cloudflare 账号读取,点选即可;
+- **新手向导**:首次使用自动弹出,三步走完 凭证 → 域名 → 应用;
 - **概览页**:隧道运行状态、cloudflared 连接器状态(未安装可一键安装)、配置概况一目了然;
 - **应用 / 域名 / 凭证页**:全部增删改在弹窗里完成,应用支持启停切换与高级选项;
-  域名可换绑凭证,删除有二次确认(应用删除可选保留 Cloudflare DNS 记录);
+  域名可换绑凭证,删除有二次确认;
+- **应用停用 / 删除即时生效**:连接器运行中,停用或删除应用即刻从 Cloudflare 下线;
+  其域名保留解析,访客看到通途介绍页(彻底清理 DNS 可用 CLI `--purge-dns`);
 - **协议自动探测**:添加应用时协议默认「自动检测」——保存时通途探测本地服务说 HTTP
   还是 HTTPS 并自动配置,免去手动选错导致的 502(源站 TLS 握手失败);
 - **运行日志页**:通途与 cloudflared 的实时输出,排查问题不用回终端。
+
+```bash
+tongtu                  # 等价于 tongtu web --open
+tongtu web              # 只启动服务,不自动开浏览器
+```
+
+默认只监听本机(`127.0.0.1:7080`);监听非本机地址时必须同时设置访问令牌:
+
+```bash
+tongtu web --addr 0.0.0.0:7080 --web-token <随机字符串>
+# API 请求需带请求头 Authorization: Bearer <令牌>
+```
 
 ## 快速上手(命令行)
 
@@ -184,8 +224,8 @@ tongtu run
 | `tongtu app add <名> --domain <FQDN> --local <地址>` | 添加应用(见下方参数) |
 | `tongtu app list` | 列出应用 |
 | `tongtu app update <名> [参数...]` | 修改应用 |
-| `tongtu app enable/disable <名>` | 启用 / 停用 |
-| `tongtu app rm <名> [--keep-dns]` | 删除应用(默认连 DNS 记录一起删) |
+| `tongtu app enable/disable <名>` | 启用 / 停用(停用后域名显示通途介绍页) |
+| `tongtu app rm <名> [--purge-dns]` | 删除应用(默认保留 DNS,域名显示介绍页;`--purge-dns` 彻底清理) |
 | `tongtu run [应用名...]` | 同步 Cloudflare 配置并运行(默认全部已启用应用) |
 | `tongtu status` | 查看各应用 DNS / 隧道就绪状态 |
 | `tongtu`(无参数) | 启动图形管理界面并自动打开浏览器 |
@@ -196,26 +236,11 @@ tongtu run
 | 参数 | 说明 | 默认 |
 |------|------|------|
 | `--domain` | 对外完整域名,如 blog.example.com,须属于已登记根域名 | — |
-| `--local` | 本地服务地址 | — |
+| `--local` | 要转发到的服务地址 `host:port`,可为本机或**任意本机能访问的内网地址**(如 `127.0.0.1:8080`、`192.168.1.10:5000`、`nas.local:5000`) | — |
 | `--proto` | 本地服务协议 http / https / tcp | `http` |
 | `--no-tls-verify` | 本地服务为自签 HTTPS 证书时跳过校验 | 关 |
 | `--origin-server-name` | 源站 TLS 握手 SNI(证书域名与访问域名不一致时) | — |
 | `--disable` | 添加后暂不启用 | 关 |
-
-## 图形界面
-
-```bash
-tongtu                  # 等价于 tongtu web --open
-tongtu web              # 只启动服务,不自动开浏览器
-```
-
-浏览器里完成凭证 / 域名 / 应用的增删改、一键启停隧道、cloudflared 一键安装与实时日志查看。
-默认只监听本机(`127.0.0.1:7080`);监听非本机地址时必须同时设置访问令牌:
-
-```bash
-tongtu web --addr 0.0.0.0:7080 --web-token <随机字符串>
-# API 请求需带请求头 Authorization: Bearer <令牌>
-```
 
 ## 快捷模式(不落配置)
 
@@ -235,6 +260,25 @@ tongtu -name demo -local 127.0.0.1:3000 -cleanup   # -cleanup: 退出时删除�
   说明源站协议配反了——本地是明文 HTTP 却按 HTTPS 连接。图形界面把应用协议改为「自动检测」
   重新保存即可自动纠正;CLI 则 `tongtu app update <名> --proto http`。
 
+## 构建
+
+```bash
+make build     # 产出 bin/tongtu
+make linux     # 交叉编译 bin/tongtu-linux-amd64 / arm64
+make vet
+```
+
+## 自动构建与发布
+
+GitHub Actions 会在推送代码或提交 PR 时自动执行测试、`go vet` 和编译。
+推送 `v*` 标签会自动生成 Linux / macOS / Windows 的 amd64、arm64 安装包,
+并发布到 GitHub Release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## 开机自启(macOS)
 
 先用 CLI 完成配置,再安装 LaunchAgent(开机执行 `tongtu run`):
@@ -248,6 +292,8 @@ tongtu -name demo -local 127.0.0.1:3000 -cleanup   # -cleanup: 退出时删除�
 - 暴露到公网的本地服务自身要有认证 —— 通途只负责"能访问",不负责"该不该访问";
   需要访问控制可在 Cloudflare Zero Trust 控制台给对应 hostname 加 Access 策略;
 - Web 面板监听非本机地址时强制要求 `--web-token`;
+- 应用下线介绍页是通途内建的一个迷你静态服务,**只绑定本机回环地址**(`127.0.0.1`,
+  与应用要转发的 `--local` 无关),仅经隧道对外,不含任何本机信息;
 - 注意:流量会经过 Cloudflare(其边缘终止 TLS),对 Cloudflare 不可见的端到端加密
   不在本工具范围内。
 

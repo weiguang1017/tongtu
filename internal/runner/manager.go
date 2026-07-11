@@ -10,6 +10,7 @@ import (
 
 	"tongtu/internal/cloudflared"
 	"tongtu/internal/config"
+	"tongtu/internal/landing"
 )
 
 // ErrAlreadyRunning 表示连接器总开关已打开。
@@ -32,6 +33,7 @@ type Manager struct {
 	root    context.Context       // 所有组进程 ctx 的父
 	procs   map[string]*groupProc // credName -> 运行中的组进程
 	errs    map[string]string     // credName -> 最近一次同步失败原因(成功后清除)
+	page    *landing.Server       // 停用/删除应用的兜底宣传页服务,生命周期同总开关
 }
 
 // groupProc 是一个凭证组的运行态(一条隧道、一个 cloudflared 进程)。
@@ -80,11 +82,17 @@ func (m *Manager) Start(ctx context.Context, plan *Plan, sel []string) error {
 	if err != nil {
 		return err
 	}
+	// 兜底宣传页:停用/删除应用后其域名的访问落到这里
+	page, err := landing.Start()
+	if err != nil {
+		return err
+	}
 	results := make([]syncResult, len(plan.groups))
 	for i := range plan.groups {
 		g := &plan.groups[i]
-		res, err := syncGroup(ctx, g)
+		res, err := syncGroup(ctx, g, page.Service())
 		if err != nil {
+			page.Close()
 			return fmt.Errorf("凭证 %s: %w", g.credName, err)
 		}
 		results[i] = res
@@ -95,6 +103,7 @@ func (m *Manager) Start(ctx context.Context, plan *Plan, sel []string) error {
 	m.running, m.sel, m.bin = true, sel, bin
 	m.root, m.cancel = root, cancel
 	m.errs = map[string]string{}
+	m.page = page
 	m.mu.Unlock()
 	for i := range plan.groups {
 		m.startProc(root, bin, &plan.groups[i], results[i])
@@ -114,14 +123,18 @@ func (m *Manager) Stop() {
 	m.running = false
 	cancel := m.cancel
 	procs := m.procs
+	page := m.page
 	m.procs = map[string]*groupProc{}
 	m.errs = map[string]string{}
-	m.root, m.cancel, m.sel = nil, nil, nil
+	m.root, m.cancel, m.sel, m.page = nil, nil, nil, nil
 	m.mu.Unlock()
 
 	cancel()
 	for _, gp := range procs {
 		waitProc(gp)
+	}
+	if page != nil {
+		page.Close()
 	}
 }
 
@@ -133,10 +146,14 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	m.mu.Lock()
-	running, sel, bin, root := m.running, m.sel, m.bin, m.root
+	running, sel, bin, root, page := m.running, m.sel, m.bin, m.root, m.page
 	m.mu.Unlock()
 	if !running {
 		return nil
+	}
+	fallback := ""
+	if page != nil {
+		fallback = page.Service()
 	}
 
 	desired, err := desiredGroups(cfg, sel)
@@ -149,7 +166,7 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 	for i := range desired {
 		g := &desired[i]
 		seen[g.credName] = true
-		res, err := syncGroup(ctx, g)
+		res, err := syncGroup(ctx, g, fallback)
 		m.mu.Lock()
 		if err != nil {
 			m.errs[g.credName] = err.Error()
@@ -169,7 +186,7 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 		m.startProc(root, bin, g, res)
 	}
 
-	// 不再期望的组(应用全部停用/删除):清空远端 ingress 后停掉连接器
+	// 不再期望的组(应用全部删除):清空远端 ingress 后停掉连接器
 	m.mu.Lock()
 	var gone []*groupProc
 	for name, gp := range m.procs {
@@ -186,7 +203,7 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 		}
 		gp.cancel()
 		waitProc(gp)
-		log.Printf("凭证 %s 下已无启用应用,其 cloudflared 已停止", gp.credName)
+		log.Printf("凭证 %s 下已无应用,其 cloudflared 已停止", gp.credName)
 	}
 	return errors.Join(errs...)
 }
@@ -223,7 +240,11 @@ func (m *Manager) startProc(root context.Context, bin string, g *group, res sync
 	m.procs[g.credName] = gp
 	m.mu.Unlock()
 	for _, e := range g.apps {
-		log.Printf("✓ 通途已就绪: https://%s -> %s://%s", e.app.Hostname, e.app.Proto, e.app.Local)
+		if e.publish {
+			log.Printf("✓ 通途已就绪: https://%s -> %s://%s", e.app.Hostname, e.app.Proto, e.app.Local)
+		} else {
+			log.Printf("· 应用 %s 已停用: https://%s 将显示通途介绍页", e.name, e.app.Hostname)
+		}
 	}
 	go func() {
 		defer close(gp.done)

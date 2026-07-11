@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>该应用已下线 · 通途 TongTu</title>
+<style>
+  :root {
+    --bg:#f4f6f8; --card:#fff; --fg:#1b2430; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#0a7d38; --accent-weak:#e7f5ec;
+    --radius:14px; --shadow:0 1px 3px rgba(16,24,40,.08);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--fg); font-size:15px; line-height:1.7; }
+  .wrap { max-width:860px; margin:0 auto; padding:0 20px 80px; }
+
+  .notice { background:#fdf3e0; color:#9a6a00; border-radius:0 0 12px 12px;
+            padding:10px 18px; font-size:13.5px; text-align:center; }
+
+  header.hero { text-align:center; padding:64px 0 40px; }
+  .hero .logo { display:inline-flex; align-items:center; justify-content:center;
+                width:64px; height:64px; border-radius:18px; background:var(--accent);
+                color:#fff; font-size:30px; font-weight:700; margin-bottom:18px; }
+  .hero h1 { font-size:34px; margin:0 0 8px; letter-spacing:1px; }
+  .hero .slogan { font-size:18px; color:var(--accent); font-weight:600; margin:0 0 14px; }
+  .hero p.sub { color:var(--muted); max-width:560px; margin:0 auto; }
+  .hero .cta { margin-top:26px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  a.btn { display:inline-block; padding:11px 26px; border-radius:10px; text-decoration:none;
+          background:var(--accent); color:#fff; font-weight:600; }
+  a.btn.ghost { background:#fff; color:var(--fg); border:1px solid var(--line); }
+  a.btn:hover { opacity:.9; }
+
+  section { margin-top:44px; }
+  section h2 { font-size:20px; margin:0 0 18px; text-align:center; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+  .card { background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px 22px; }
+  .card h3 { margin:0 0 8px; font-size:15.5px; }
+  .card h3 .ico { margin-right:8px; }
+  .card p { margin:0; color:var(--muted); font-size:13.5px; }
+
+  .steps { counter-reset:step; }
+  .step { display:flex; gap:16px; background:var(--card); border-radius:var(--radius);
+          box-shadow:var(--shadow); padding:18px 22px; margin-bottom:12px; }
+  .step .no { counter-increment:step; flex:none; width:34px; height:34px; border-radius:50%;
+              background:var(--accent-weak); color:var(--accent); font-weight:700;
+              display:flex; align-items:center; justify-content:center; }
+  .step .no::before { content:counter(step); }
+  .step h3 { margin:0 0 4px; font-size:15px; }
+  .step p { margin:0; color:var(--muted); font-size:13.5px; }
+  pre { background:#1c2430; color:#d7dde6; border-radius:10px; padding:14px 18px;
+        overflow-x:auto; font-size:13px; line-height:1.7; }
+  code.inline { background:#eef1f4; padding:2px 6px; border-radius:5px; font-size:13px; }
+
+  footer { margin-top:60px; text-align:center; color:var(--muted); font-size:12.5px; }
+  footer a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="notice">你访问的应用已停止服务或已下架 —— 本页面由通途自动生成。</div>
+<div class="wrap">
+
+<header class="hero">
+  <div class="logo">通</div>
+  <h1>通途 TongTu</h1>
+  <p class="slogan">天堑变通途,家宽即服务器。</p>
+  <p class="sub">极简内网穿透工具:把家里任何一个本地端口,通过你自己的域名(自动 HTTPS)发布到公网。
+     纯客户端、零服务器 —— 公网接入、TLS 证书、DNS 全部由 Cloudflare 免费承担。</p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/weiguang1017/tongtu" rel="noopener">GitHub 项目主页</a>
+    <a class="btn ghost" href="https://github.com/weiguang1017/tongtu/releases" rel="noopener">下载最新版本</a>
+  </div>
+</header>
+
+<section>
+  <h2>适合谁用</h2>
+  <div class="grid">
+    <div class="card"><h3><span class="ico">🧑‍💻</span>个人开发者</h3>
+      <p>本地项目秒变公网可访问的演示环境,发个链接给客户或朋友,不用买服务器、配 nginx、签证书。</p></div>
+    <div class="card"><h3><span class="ico">🗄️</span>NAS / 家庭服务器玩家</h3>
+      <p>把家里的相册、网盘、影音库(Jellyfin、Photoprism、Home Assistant…)安全地带出门,随时随地访问。</p></div>
+    <div class="card"><h3><span class="ico">✍️</span>独立博主 / 小站长</h3>
+      <p>旧电脑 + 家宽就能长期托管博客和个人主页,自己的域名、自动 HTTPS,不限流量。</p></div>
+    <div class="card"><h3><span class="ico">👥</span>小团队</h3>
+      <p>内部工具、测试环境、Webhook 联调,一条命令上线;停用即下线,权限收放自如。</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>典型场景</h2>
+  <div class="grid">
+    <div class="card"><h3>🚀 项目演示</h3><p>本地 <code class="inline">localhost:3000</code> → <code class="inline">https://demo.你的域名.com</code>,会议开始前一分钟上线。</p></div>
+    <div class="card"><h3>🏠 远程回家</h3><p>在外访问家中服务,无需公网 IP、不碰路由器端口映射,天然穿透运营商 NAT。</p></div>
+    <div class="card"><h3>🔗 Webhook 联调</h3><p>微信/支付宝/GitHub 回调直达本机开发环境,原生支持 WebSocket 与长连接。</p></div>
+    <div class="card"><h3>🧪 多应用托管</h3><p>一台机器发布多个子域名应用,图形界面启停,改配置即时生效。</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>如何安装</h2>
+  <div class="steps">
+    <div class="step"><span class="no"></span><div>
+      <h3>一键安装(Linux / macOS)</h3>
+      <pre>curl -fsSL https://raw.githubusercontent.com/weiguang1017/tongtu/main/install.sh | sh</pre>
+      <p>脚本自动识别系统与架构,校验 SHA256 后安装到 <code class="inline">/usr/local/bin</code>。
+         Windows 用户到 <a href="https://github.com/weiguang1017/tongtu/releases" rel="noopener">Releases</a> 下载解压即可。</p>
+    </div></div>
+    <div class="step"><span class="no"></span><div>
+      <h3>启动图形界面</h3>
+      <pre>tongtu</pre>
+      <p>自动打开浏览器管理面板,三步向导引导完成配置:粘贴 Cloudflare API Token → 选择域名 → 填写本地服务地址。</p>
+    </div></div>
+    <div class="step"><span class="no"></span><div>
+      <h3>一键启动隧道</h3>
+      <p>点「启动连接器」,几秒后即可通过 <code class="inline">https://应用名.你的域名.com</code> 访问本地服务。
+         偏好命令行也有完整子命令:<code class="inline">tongtu app add … && tongtu run</code>。</p>
+    </div></div>
+  </div>
+</section>
+
+<section>
+  <h2>为什么选通途</h2>
+  <div class="grid">
+    <div class="card"><h3>零服务器成本</h3><p>公网接入、TLS、DNS 全由 Cloudflare 免费承担,Cloudflare Tunnel 不限流量。</p></div>
+    <div class="card"><h3>开箱即用</h3><p>单二进制、零第三方依赖;图形界面向导式配置,cloudflared 一键安装。</p></div>
+    <div class="card"><h3>安全默认</h3><p>本机只出不进:cloudflared 主动外连,不开任何入站端口,HTTPS 全程加密。</p></div>
+  </div>
+</section>
+
+<footer>
+  <p><a href="https://github.com/weiguang1017/tongtu" rel="noopener">通途 TongTu</a> · 开源内网穿透工具 ·
+     本页面是应用下线后的占位页,与原应用内容无关。</p>
+</footer>
+
+</div>
+</body>
+</html>
