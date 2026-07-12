@@ -60,15 +60,21 @@ https_proxy=http://127.0.0.1:7890 sh install.sh    # 国内网络走代理下载
 对应你系统与架构的桌面包:
 
 - **macOS**:`tongtu_<版本>_darwin_<arch>_desktop.dmg`(Apple 芯片选 `arm64`,Intel 选 `amd64`)。
-  打开 dmg,把 `TongTu.app` 拖到「应用程序」软链上。未签名应用首次打开需**右键 →「打开」**
-  确认一次;若仍报「已损坏 / 版本不适配」,在终端执行:
+  打开 dmg,把 `TongTu.app` 拖到「应用程序」软链上。**DMG 拖拽安装的 app 会带上 quarantine
+  隔离标记**,因本应用无付费开发者证书,Gatekeeper 会拦截 —— 表现为**双击图标没有任何反应**
+  (新版 macOS 如 26 不弹「已损坏」提示,直接静默失败;命令行运行则正常)。装完先执行一次:
 
   ```bash
-  xattr -dr com.apple.quarantine /Applications/TongTu.app
+  xattr -dr com.apple.quarantine /Applications/TongTu.app   # 去掉隔离标记,双击即可打开
+  ```
+
+  仍打不开(或图标带禁止标)时再补一步 ad-hoc 重签名:
+
+  ```bash
   codesign --force --deep --sign - /Applications/TongTu.app
   ```
 
-  (这正是一键脚本自动帮你做的两步,无需付费开发者证书。)
+  (这正是一键脚本自动帮你做的两步,无需付费开发者证书;用一键脚本安装则无需手动执行。)
 - **Windows**:`tongtu_<版本>_windows_<arch>_desktop.zip`,解压后运行 `tongtu-gui.exe`
   (桌面客户端,无控制台窗口);同目录的 `tongtu.exe` 是命令行版。需 WebView2 Runtime
   (Win10 21H1+ 系统自带)。
@@ -95,10 +101,11 @@ https_proxy=http://127.0.0.1:7890 sh install.sh    # 国内网络走代理下载
 
 平台注意事项:
 
-- **macOS**:一键脚本或下载 `*_desktop.dmg` 拖入「应用程序」。因无付费开发者证书,首次
-  打开需**右键 →「打开」**;若报「已损坏 / 版本不适配」,执行
-  `xattr -dr com.apple.quarantine /Applications/TongTu.app && codesign --force --deep --sign - /Applications/TongTu.app`
-  (一键脚本已自动完成这两步);
+- **macOS**:推荐用一键脚本(自动去 quarantine 隔离标记 + ad-hoc 重签名);若从
+  `*_desktop.dmg` 拖入「应用程序」,因无付费开发者证书会带隔离标记被 Gatekeeper 拦下 ——
+  典型表现是**双击图标没有任何反应**(新版 macOS 不弹「已损坏」提示,静默失败),终端执行一次
+  `xattr -dr com.apple.quarantine /Applications/TongTu.app` 即可打开(仍不行再补
+  `codesign --force --deep --sign - /Applications/TongTu.app`);
 - **Windows**:zip 内含两个 exe —— `tongtu-gui.exe`(桌面客户端,无控制台窗口)与
   `tongtu.exe`(命令行)。需要 WebView2 Runtime(Win10 21H1+ 系统自带);
 - **Linux**:需要 `libwebkit2gtk-4.0` 与 GTK3 运行库;GNOME 桌面托盘图标需要

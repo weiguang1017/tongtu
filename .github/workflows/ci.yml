@@ -289,5 +289,5 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" dist/* \
               --title "tongtu ${GITHUB_REF_NAME}" \
-              --notes "自动发布 ${GITHUB_REF_NAME}。**桌面客户端**(托盘+原生窗口):macOS 下载 \`*_desktop.dmg\`,Windows 下载 \`*_windows_*_desktop.zip\`,Linux 下载 \`*_linux_*_desktop.tar.gz\`;或一键安装桌面版:\`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`(macOS 无证书,脚本自动 ad-hoc 签名并去 quarantine)。服务器/无图形环境用不带 \`_desktop\` 后缀的 headless 包(\`tongtu web\`)。"
+              --notes "自动发布 ${GITHUB_REF_NAME}。**桌面客户端**(托盘+原生窗口):macOS 下载 \`*_desktop.dmg\`,Windows 下载 \`*_windows_*_desktop.zip\`,Linux 下载 \`*_linux_*_desktop.tar.gz\`;或一键安装桌面版:\`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`(macOS 无证书,脚本自动 ad-hoc 签名并去 quarantine)。**macOS 用 DMG 拖拽安装**时会带 quarantine 隔离标记,双击可能没有任何反应(Gatekeeper 静默拦截),终端执行 \`xattr -dr com.apple.quarantine /Applications/TongTu.app\` 即可打开,或直接用上面的一键脚本免去这步。服务器/无图形环境用不带 \`_desktop\` 后缀的 headless 包(\`tongtu web\`)。"
           fi

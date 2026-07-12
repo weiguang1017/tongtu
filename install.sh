@@ -89,12 +89,18 @@ install_macos() {
   $SUDO cp -R "$src" "$target"
 
   # 无付费开发者证书的关键处理:
-  # 1) 去掉浏览器/网络下载附带的 quarantine 隔离标记,避免"无法验证开发者/已损坏";
+  # 1) 去掉浏览器/网络下载(含 DMG 拖拽安装)附带的 quarantine 隔离标记 —— 带此标记时
+  #    Gatekeeper 会拦下 ad-hoc 签名的 app,新版 macOS(如 26)甚至不弹「已损坏」提示,
+  #    直接静默失败:双击图标毫无反应、进程卡在 dyld 起不来(命令行运行不走该校验,故 CLI 正常);
   # 2) ad-hoc 重新签名,补齐 Apple Silicon 内核要求的有效签名,消除"版本不适配"与图标禁止标。
   $SUDO xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
   if command -v codesign >/dev/null 2>&1; then
-    $SUDO codesign --force --deep --sign - "$target" 2>/dev/null || \
-      warn "ad-hoc 签名失败(可忽略);若首次打开报错,右键 →「打开」一次即可"
+    $SUDO codesign --force --deep --sign - "$target" 2>/dev/null || true
+  fi
+  # 兜底校验:隔离标记若有残留,双击仍会没反应,提示用户手动清一次
+  if xattr -p com.apple.quarantine "$target" >/dev/null 2>&1; then
+    warn "quarantine 隔离标记未完全去除;若双击图标没反应,请手动执行:
+       sudo xattr -dr com.apple.quarantine \"$target\""
   fi
 
   # 顺带把 CLI 软链到 PATH:app 内二进制同时支持 tongtu 各子命令
