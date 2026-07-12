@@ -134,10 +134,18 @@ jobs:
             ln -s /Applications "$stage/应用程序"
             cp assets/icon/tongtu.icns "$stage/.VolumeIcon.icns"
             rw="${stage}.rw.dmg"
+            # detach 是异步的:上一轮 arm64 的同名卷若未完全卸载,本轮 amd64 的
+            # create(内部会挂载同名临时卷)会因名字冲突报 "Resource busy"。
+            # 先防御性卸掉任何残留的「通途」卷,再创建。
+            hdiutil detach "/Volumes/通途" -force >/dev/null 2>&1 || true
             hdiutil create -volname 通途 -srcfolder "$stage" -ov -format UDRW "$rw"
             mnt="$(hdiutil attach -nobrowse -readwrite "$rw" | tail -1 | awk '{print $NF}')"
             SetFile -a C "$mnt" || true
-            hdiutil detach "$mnt" >/dev/null
+            # -force 兜底并重试,确保卷完全卸载(否则下一轮 create 会 Resource busy)
+            for _ in 1 2 3 4 5; do
+              hdiutil detach "$mnt" -force >/dev/null 2>&1 && break
+              sleep 2
+            done
             hdiutil convert "$rw" -format UDZO -ov \
               -o "dist/tongtu_${GITHUB_REF_NAME}_darwin_${arch}_desktop.dmg"
             rm -f "$rw"
