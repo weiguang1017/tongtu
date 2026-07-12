@@ -22,8 +22,11 @@ clean:
 # ---- 桌面版(系统托盘 + 原生 WebView 窗口) ----
 
 # 本平台桌面构建:macOS/Linux 需 CGO(WKWebView / WebKitGTK)
+# macOS 固定部署目标 11.0:否则 clang 把当前系统版本写进 Mach-O 的 minos,
+# 旧系统用户双击 .app 会报"不能与此版本的 macOS 配合使用"(命令行不走该
+# 校验,故 CLI 正常、双击失败)。与 deploy/Info.plist 的 LSMinimumSystemVersion 一致。
 desktop:
-	CGO_ENABLED=1 go build -tags desktop -trimpath -o bin/tongtu ./cmd/tongtu
+	MACOSX_DEPLOYMENT_TARGET=11.0 CGO_ENABLED=1 go build -tags desktop -trimpath -o bin/tongtu ./cmd/tongtu
 
 # Windows 桌面版可从任意平台交叉编译(go-webview2 纯 Go):
 # -H windowsgui 免闪控制台,发行包应同时附 console 版 tongtu.exe 供 CLI 使用

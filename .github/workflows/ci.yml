@@ -108,6 +108,12 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist
+          # CGO 构建由 clang 链接:不指定部署目标时,会把 runner 当前的 macOS
+          # 版本(如 26.x)写进 Mach-O 的 LC_BUILD_VERSION minos。Finder/LaunchServices
+          # 按 minos 校验,旧系统用户双击会报"不能与此版本的 macOS 配合使用"
+          # (而命令行运行不走该校验,故 CLI 正常、双击失败)。这里固定为 11.0,
+          # 与 Info.plist 的 LSMinimumSystemVersion 一致。
+          export MACOSX_DEPLOYMENT_TARGET=11.0
           for arch in arm64 amd64; do
             CGO_ENABLED=1 GOARCH="$arch" go build -tags desktop -trimpath \
               -ldflags "-s -w" -o bin/tongtu ./cmd/tongtu
