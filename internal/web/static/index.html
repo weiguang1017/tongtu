@@ -30,6 +30,7 @@
   #side nav a:hover { background:rgba(255,255,255,.06); }
   #side nav a.active { background:var(--side-active); color:#fff; }
   #side .foot { margin-top:auto; padding:14px 18px; font-size:11px; color:#66707f; }
+  #side .foot .ver { color:#8b95a5; margin-bottom:6px; font-variant-numeric:tabular-nums; letter-spacing:.3px; }
 
   /* ---- 主区 ---- */
   #main { flex:1; min-width:0; display:flex; flex-direction:column; }
@@ -166,7 +167,7 @@
     <a data-v="creds">🔑 凭证</a>
     <a data-v="logs">📜 运行日志</a>
   </nav>
-  <div class="foot">公网侧由 Cloudflare 承担<br>本机不对外监听任何端口</div>
+  <div class="foot"><div class="ver" id="appVer"></div>公网侧由 Cloudflare 承担<br>本机不对外监听任何端口</div>
 </aside>
 
 <div id="main">
@@ -480,6 +481,7 @@ async function refresh() {
 
 async function refreshStatus() {
   try { status = await api('/api/status'); } catch (e) { return; }
+  if (status.version) $('#appVer').textContent = status.version === 'dev' ? '开发版本' : 'v' + status.version;
   const on = status.running;
   const pub = status.published_count || 0;
   $('#runPill').className = 'pill' + (on ? ' on' : '');

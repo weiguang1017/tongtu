@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"tongtu/internal/buildinfo"
 	"tongtu/internal/cf"
 	"tongtu/internal/cloudflared"
 	"tongtu/internal/config"
@@ -661,7 +662,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	installing, installErr := s.installing, s.installErr
 	s.mu.Unlock()
-	out := map[string]any{"running": st.Running, "installing": installing}
+	out := map[string]any{"running": st.Running, "installing": installing, "version": buildinfo.String()}
 
 	// 逐应用给出配置意图(enabled)与实际发布状态(published)
 	appsState := map[string]any{}

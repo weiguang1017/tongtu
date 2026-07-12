@@ -3,14 +3,17 @@
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
 ARCH    := $(shell uname -m)
 
+# 版本号注入:客户端左下角与 CLI 展示,发行版走此处
+VERLDFLAGS := -X tongtu/internal/buildinfo.Version=$(VERSION)
+
 # ---- headless(纯 Go,零 CGO,与旧版完全一致) ----
 
 build:
-	go build -o bin/tongtu ./cmd/tongtu
+	go build -ldflags "$(VERLDFLAGS)" -o bin/tongtu ./cmd/tongtu
 
 linux:
-	GOOS=linux GOARCH=amd64 go build -o bin/tongtu-linux-amd64 ./cmd/tongtu
-	GOOS=linux GOARCH=arm64 go build -o bin/tongtu-linux-arm64 ./cmd/tongtu
+	GOOS=linux GOARCH=amd64 go build -ldflags "$(VERLDFLAGS)" -o bin/tongtu-linux-amd64 ./cmd/tongtu
+	GOOS=linux GOARCH=arm64 go build -ldflags "$(VERLDFLAGS)" -o bin/tongtu-linux-arm64 ./cmd/tongtu
 
 vet:
 	go vet ./...
@@ -26,15 +29,15 @@ clean:
 # 旧系统用户双击 .app 会报"不能与此版本的 macOS 配合使用"(命令行不走该
 # 校验,故 CLI 正常、双击失败)。与 deploy/Info.plist 的 LSMinimumSystemVersion 一致。
 desktop:
-	MACOSX_DEPLOYMENT_TARGET=11.0 CGO_ENABLED=1 go build -tags desktop -trimpath -o bin/tongtu ./cmd/tongtu
+	MACOSX_DEPLOYMENT_TARGET=11.0 CGO_ENABLED=1 go build -tags desktop -trimpath -ldflags "$(VERLDFLAGS)" -o bin/tongtu ./cmd/tongtu
 
 # Windows 桌面版可从任意平台交叉编译(go-webview2 纯 Go):
 # -H windowsgui 免闪控制台,发行包应同时附 console 版 tongtu.exe 供 CLI 使用
 desktop-win:
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop -trimpath \
-		-ldflags "-s -w -H windowsgui" -o bin/tongtu-gui.exe ./cmd/tongtu
+		-ldflags "-s -w -H windowsgui $(VERLDFLAGS)" -o bin/tongtu-gui.exe ./cmd/tongtu
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
-		-ldflags "-s -w" -o bin/tongtu.exe ./cmd/tongtu
+		-ldflags "-s -w $(VERLDFLAGS)" -o bin/tongtu.exe ./cmd/tongtu
 
 # 从 assets/icon/*.svg 重新生成全部图标产物(icns/ico/png/syso,产物提交进仓库)
 icons:

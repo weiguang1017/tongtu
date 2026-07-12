@@ -116,7 +116,7 @@ jobs:
           export MACOSX_DEPLOYMENT_TARGET=11.0
           for arch in arm64 amd64; do
             CGO_ENABLED=1 GOARCH="$arch" go build -tags desktop -trimpath \
-              -ldflags "-s -w" -o bin/tongtu ./cmd/tongtu
+              -ldflags "-s -w -X tongtu/internal/buildinfo.Version=${version}" -o bin/tongtu ./cmd/tongtu
             rm -rf dist/TongTu.app
             mkdir -p dist/TongTu.app/Contents/MacOS dist/TongTu.app/Contents/Resources
             cp bin/tongtu dist/TongTu.app/Contents/MacOS/tongtu
@@ -159,14 +159,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
           mkdir -p dist
           for arch in amd64 arm64; do
             pkg="tongtu_${GITHUB_REF_NAME}_windows_${arch}_desktop"
             mkdir -p "build/${pkg}"
             CGO_ENABLED=0 GOARCH="$arch" go build -tags desktop -trimpath \
-              -ldflags "-s -w -H windowsgui" -o "build/${pkg}/tongtu-gui.exe" ./cmd/tongtu
+              -ldflags "-s -w -H windowsgui -X tongtu/internal/buildinfo.Version=${version}" -o "build/${pkg}/tongtu-gui.exe" ./cmd/tongtu
             CGO_ENABLED=0 GOARCH="$arch" go build -trimpath \
-              -ldflags "-s -w" -o "build/${pkg}/tongtu.exe" ./cmd/tongtu
+              -ldflags "-s -w -X tongtu/internal/buildinfo.Version=${version}" -o "build/${pkg}/tongtu.exe" ./cmd/tongtu
             cp README.md "build/${pkg}/"
             (cd build && 7z a -tzip "../dist/${pkg}.zip" "${pkg}" >/dev/null)
           done
@@ -175,9 +176,10 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
           pkg="tongtu_${GITHUB_REF_NAME}_linux_amd64_desktop"
           mkdir -p "build/${pkg}/icons" dist
-          CGO_ENABLED=1 go build -tags desktop -trimpath -ldflags "-s -w" \
+          CGO_ENABLED=1 go build -tags desktop -trimpath -ldflags "-s -w -X tongtu/internal/buildinfo.Version=${version}" \
             -o "build/${pkg}/tongtu" ./cmd/tongtu
           cp README.md deploy/tongtu.desktop "build/${pkg}/"
           for size in 48 128 256; do
@@ -213,6 +215,7 @@ jobs:
           set -euo pipefail
 
           version="${GITHUB_REF_NAME}"
+          ldver="${GITHUB_REF_NAME#v}"
           mkdir -p dist build/release
 
           targets=(
@@ -238,7 +241,7 @@ jobs:
             mkdir -p "${package_dir}/deploy"
             CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" go build \
               -trimpath \
-              -ldflags="-s -w" \
+              -ldflags="-s -w -X tongtu/internal/buildinfo.Version=${ldver}" \
               -o "${binary}" \
               ./cmd/tongtu
 

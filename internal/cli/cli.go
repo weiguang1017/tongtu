@@ -1,4 +1,4 @@
-// Package cli 实现通途的子命令:cred / domain / zones / app / run / status / web。
+// Package cli 实现通途的子命令:cred / domain / zones / app / run / status / version / web。
 package cli
 
 import (
@@ -37,6 +37,8 @@ func Execute(ctx context.Context, args []string) (bool, error) {
 	case "window":
 		// 内部命令:桌面模式的窗口子进程,由主进程 spawn,不进 usage
 		return true, cmdWindow(ctx, args[1:])
+	case "version", "-v", "--version":
+		return true, cmdVersion(ctx, args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return true, nil
@@ -59,6 +61,7 @@ func usage() {
   app    add|list|update|enable|disable|rm   管理对外应用
   run    [应用名...]            同步配置并运行(默认全部已启用应用)
   status                        查看各应用就绪状态
+  version                       查看当前版本(也可用 tongtu -v / --version)
 
 快捷方式(不落配置,临时暴露):
   tongtu -domain example.com -name blog -local 127.0.0.1:8080
