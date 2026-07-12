@@ -32,37 +32,51 @@ tongtu run
 curl -fsSL https://raw.githubusercontent.com/weiguang1017/tongtu/main/install.sh | sh
 ```
 
-脚本会自动识别系统与架构,下载最新 Release、校验 SHA256 并安装到 `/usr/local/bin`
-(需要时会请求 sudo)。可用环境变量定制:
+装的就是**桌面客户端**(系统托盘常驻 + 原生窗口),不是浏览器面板版。脚本会自动识别
+系统与架构、下载最新 Release 并校验 SHA256:
+
+- **macOS**:把 `TongTu.app` 安装到「应用程序」。因为没有付费开发者证书,脚本会自动
+  **去除 quarantine 隔离标记并做 ad-hoc 重签名**,消除 Apple Silicon 上「已损坏 / 版本不适配」
+  和图标上的禁止标;装好后到「启动台 / 应用程序」打开「通途」即可(菜单栏出现托盘图标)。
+- **Linux**(amd64):安装桌面二进制到 `/usr/local/bin` 并注册应用菜单图标与 `.desktop`,
+  在应用菜单搜索「通途」启动;需要 GTK3 与 `libwebkit2gtk-4.0` 运行库。
+
+可用环境变量定制:
 
 ```bash
-TONGTU_VERSION=v0.0.2 sh install.sh                 # 指定版本
-TONGTU_INSTALL_DIR=~/.local/bin sh install.sh      # 自定义安装目录
+TONGTU_VERSION=v0.0.7 sh install.sh                # 指定版本
+TONGTU_APP_DIR=~/Applications sh install.sh        # macOS 改装到用户目录(免 sudo)
+TONGTU_INSTALL_DIR=~/.local/bin sh install.sh      # Linux 自定义二进制目录 / CLI 软链目录
 https_proxy=http://127.0.0.1:7890 sh install.sh    # 国内网络走代理下载
 ```
+
+> 命令行同样可用:macOS 会把 CLI 软链到 `/usr/local/bin/tongtu`,Linux 直接就是二进制,
+> `tongtu app add ...`、`tongtu run` 等子命令与桌面客户端共用同一份配置。
 
 <details>
 <summary><b>手动下载安装(含 Windows)</b></summary>
 
-到 [Releases](https://github.com/weiguang1017/tongtu/releases) 页面下载对应系统与架构的压缩包,解压后:
+到 [Releases](https://github.com/weiguang1017/tongtu/releases) 页面下载带 `_desktop` 后缀、
+对应你系统与架构的桌面包:
 
-```bash
-tar -xzf tongtu_v0.0.2_darwin_arm64.tar.gz
-cd tongtu_v0.0.2_darwin_arm64
-./tongtu        # 注意要加 ./ —— 当前目录默认不在 PATH 里,直接敲 tongtu 会报 command not found
-```
+- **macOS**:`tongtu_<版本>_darwin_<arch>_desktop.dmg`(Apple 芯片选 `arm64`,Intel 选 `amd64`)。
+  打开 dmg,把 `TongTu.app` 拖到「应用程序」软链上。未签名应用首次打开需**右键 →「打开」**
+  确认一次;若仍报「已损坏 / 版本不适配」,在终端执行:
 
-想在任意目录直接使用,把二进制移到 PATH 里的目录即可:
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/TongTu.app
+  codesign --force --deep --sign - /Applications/TongTu.app
+  ```
 
-```bash
-sudo mv tongtu /usr/local/bin/
-```
+  (这正是一键脚本自动帮你做的两步,无需付费开发者证书。)
+- **Windows**:`tongtu_<版本>_windows_<arch>_desktop.zip`,解压后运行 `tongtu-gui.exe`
+  (桌面客户端,无控制台窗口);同目录的 `tongtu.exe` 是命令行版。需 WebView2 Runtime
+  (Win10 21H1+ 系统自带)。
+- **Linux**:`tongtu_<版本>_linux_amd64_desktop.tar.gz`,解压后运行 `./tongtu`;需 GTK3 与
+  `libwebkit2gtk-4.0`。
 
-> **macOS 提示**:用浏览器下载的二进制带有 quarantine 隔离标记,首次运行可能提示
-> "无法验证开发者"。执行 `xattr -d com.apple.quarantine ./tongtu` 清除即可;
-> 用 `curl` 下载或一键安装脚本则不会遇到。
-
-Windows 用户下载 zip 包解压后,在解压目录运行 `.\tongtu.exe`,或将其所在目录加入 `Path` 环境变量。
+> 服务器 / 无图形环境:下载不带 `_desktop` 后缀的 headless 包(六个系统架构组合),
+> 解压后 `./tongtu web` 启动纯浏览器面板,功能完全一致。
 
 </details>
 
@@ -81,8 +95,10 @@ Windows 用户下载 zip 包解压后,在解压目录运行 `.\tongtu.exe`,或�
 
 平台注意事项:
 
-- **macOS**:下载 `*_desktop.dmg`,把 `TongTu.app` 拖入「应用程序」。未签名应用首次打开
-  需右键 →「打开」,或 `xattr -dr com.apple.quarantine /Applications/TongTu.app`;
+- **macOS**:一键脚本或下载 `*_desktop.dmg` 拖入「应用程序」。因无付费开发者证书,首次
+  打开需**右键 →「打开」**;若报「已损坏 / 版本不适配」,执行
+  `xattr -dr com.apple.quarantine /Applications/TongTu.app && codesign --force --deep --sign - /Applications/TongTu.app`
+  (一键脚本已自动完成这两步);
 - **Windows**:zip 内含两个 exe —— `tongtu-gui.exe`(桌面客户端,无控制台窗口)与
   `tongtu.exe`(命令行)。需要 WebView2 Runtime(Win10 21H1+ 系统自带);
 - **Linux**:需要 `libwebkit2gtk-4.0` 与 GTK3 运行库;GNOME 桌面托盘图标需要
@@ -93,15 +109,12 @@ Windows 用户下载 zip 包解压后,在解压目录运行 `.\tongtu.exe`,或�
 > 准备工作(一次性,约 5 分钟):域名托管在 Cloudflare + 一个 API Token,
 > 详见下方[前提条件](#前提条件一次性约-5-分钟)。
 
-### 第 1 步 · 启动图形界面,跟着向导走
+### 第 1 步 · 打开客户端,跟着向导走
 
-```bash
-tongtu
-```
-
-自动打开浏览器管理面板(默认 `http://127.0.0.1:7080`,仅本机可访问)。
-首次使用自动弹出三步向导:粘贴 Cloudflare API Token → 选择域名(直接从你的
-Cloudflare 账号读取,点选即可)→ 映射本地服务:
+从「启动台 / 应用程序 / 开始菜单」打开「通途」(或在终端运行 `tongtu`)。桌面客户端会
+弹出**原生管理窗口**(内嵌系统 WebView,默认面板地址 `http://127.0.0.1:7080`,仅本机可访问),
+菜单栏 / 任务栏同时出现托盘图标。首次使用自动弹出三步向导:粘贴 Cloudflare API Token →
+选择域名(直接从你的 Cloudflare 账号读取,点选即可)→ 映射本地服务:
 
 ![新手向导:添加凭证](docs/images/gui-wizard.png)
 

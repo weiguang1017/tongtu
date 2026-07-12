@@ -20,6 +20,9 @@ import (
 //go:embed page.html
 var pageHTML []byte
 
+//go:embed favicon.svg
+var faviconSVG []byte
+
 // Server 是宣传页迷你服务,生命周期跟随连接器总开关。
 type Server struct {
 	ln  net.Listener
@@ -33,6 +36,11 @@ func Start() (*Server, error) {
 		return nil, fmt.Errorf("启动宣传页服务失败: %w", err)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write(faviconSVG) //nolint:errcheck
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")

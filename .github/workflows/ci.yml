@@ -116,11 +116,28 @@ jobs:
             cp bin/tongtu dist/TongTu.app/Contents/MacOS/tongtu
             sed "s/__VERSION__/${version}/g" deploy/Info.plist > dist/TongTu.app/Contents/Info.plist
             cp assets/icon/tongtu.icns dist/TongTu.app/Contents/Resources/tongtu.icns
-            hdiutil create -volname 通途 -srcfolder dist/TongTu.app -ov -format UDZO \
-              "dist/tongtu_${GITHUB_REF_NAME}_darwin_${arch}_desktop.dmg"
+            # 无付费开发者证书:对 .app 做 ad-hoc 签名。Apple Silicon 内核强制要求
+            # 每个可执行文件带有效签名,缺失会被判为"已损坏/版本不适配"并在图标上打禁止标。
+            # 交叉编译出的 amd64 分片 Go 链接器不会补签,这里统一由 codesign 兜底。
+            codesign --force --deep --sign - --timestamp=none dist/TongTu.app
+            codesign --verify --deep --strict dist/TongTu.app
+            # DMG 暂存目录:应用 + 「应用程序」软链(便于拖拽安装) + 自定义卷图标
+            stage="$(mktemp -d)/dmg"
+            mkdir -p "$stage"
+            cp -R dist/TongTu.app "$stage/"
+            ln -s /Applications "$stage/应用程序"
+            cp assets/icon/tongtu.icns "$stage/.VolumeIcon.icns"
+            rw="${stage}.rw.dmg"
+            hdiutil create -volname 通途 -srcfolder "$stage" -ov -format UDRW "$rw"
+            mnt="$(hdiutil attach -nobrowse -readwrite "$rw" | tail -1 | awk '{print $NF}')"
+            SetFile -a C "$mnt" || true
+            hdiutil detach "$mnt" >/dev/null
+            hdiutil convert "$rw" -format UDZO -ov \
+              -o "dist/tongtu_${GITHUB_REF_NAME}_darwin_${arch}_desktop.dmg"
+            rm -f "$rw"
             ditto -c -k --keepParent dist/TongTu.app \
               "dist/tongtu_${GITHUB_REF_NAME}_darwin_${arch}_desktop.app.zip"
-            rm -rf dist/TongTu.app
+            rm -rf dist/TongTu.app "$stage"
           done
 
       - name: Windows 双 exe(amd64 与 arm64)
@@ -258,5 +275,5 @@ jobs:
           else
             gh release create "${GITHUB_REF_NAME}" dist/* \
               --title "tongtu ${GITHUB_REF_NAME}" \
-              --notes "自动发布 ${GITHUB_REF_NAME}。桌面版(托盘+窗口):macOS 下载 \`*_desktop.dmg\`,Windows 下载 \`*_windows_*_desktop.zip\`,Linux 下载 \`*_linux_*_desktop.tar.gz\`。服务器/无图形环境用 headless 包或一键安装:\`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`。"
+              --notes "自动发布 ${GITHUB_REF_NAME}。**桌面客户端**(托盘+原生窗口):macOS 下载 \`*_desktop.dmg\`,Windows 下载 \`*_windows_*_desktop.zip\`,Linux 下载 \`*_linux_*_desktop.tar.gz\`;或一键安装桌面版:\`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`(macOS 无证书,脚本自动 ad-hoc 签名并去 quarantine)。服务器/无图形环境用不带 \`_desktop\` 后缀的 headless 包(\`tongtu web\`)。"
           fi

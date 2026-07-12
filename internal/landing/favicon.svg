@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  通途主图标(源文件,1024×1024)。
+  意象:拱桥 + 水中倒影合成完整圆环 —— 既是「一桥飞架南北,天堑变通途」
+  的桥,也是内网穿透的隧道口;桥面一道橙色光带象征流量经隧道穿行,
+  取 Cloudflare 橙呼应公网侧生态。
+  图标主体是 824×824 圆角矩形(macOS Big Sur 规范安全区),四周留 100px
+  透明边距;Windows/Linux 直接复用同一渲染结果。
+  生成各尺寸产物: make icons(需 brew install librsvg)。
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 夜空 → 深海的纵向渐变 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0A1B3D"/>
+      <stop offset="0.55" stop-color="#0F3057"/>
+      <stop offset="1" stop-color="#0E7490"/>
+    </linearGradient>
+    <!-- 水面在水线处更亮,向下沉入深色 -->
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17A2B8" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#0A5A75" stop-opacity="0"/>
+    </linearGradient>
+    <!-- 桥面光带:中间亮、两端渐隐 -->
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F6821F" stop-opacity="0"/>
+      <stop offset="0.18" stop-color="#F6821F" stop-opacity="0.9"/>
+      <stop offset="0.5" stop-color="#FFC46B"/>
+      <stop offset="0.82" stop-color="#F6821F" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#F6821F" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="moonGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#BFE8F2" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#BFE8F2" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" filterUnits="userSpaceOnUse" x="60" y="440" width="904" height="240">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <!-- 圆角矩形主体裁剪 -->
+    <clipPath id="body">
+      <rect x="100" y="100" width="824" height="824" rx="186"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#body)">
+    <!-- 背景 -->
+    <rect x="100" y="100" width="824" height="824" fill="url(#bg)"/>
+
+    <!-- 远处的月亮与星 -->
+    <circle cx="742" cy="268" r="120" fill="url(#moonGlow)"/>
+    <circle cx="742" cy="268" r="46" fill="#D8F0F7" opacity="0.92"/>
+    <circle cx="272" cy="228" r="7" fill="#CFEAF4" opacity="0.7"/>
+    <circle cx="392" cy="176" r="5" fill="#CFEAF4" opacity="0.5"/>
+    <circle cx="196" cy="330" r="5" fill="#CFEAF4" opacity="0.45"/>
+    <circle cx="620" cy="150" r="5" fill="#CFEAF4" opacity="0.4"/>
+
+    <!-- 水面(水线 y=660) -->
+    <rect x="100" y="660" width="824" height="264" fill="url(#water)"/>
+
+    <!-- 倒影:桥拱下半圆 + 桥面 + 光带,整体压暗 -->
+    <g opacity="0.30">
+      <path d="M240,662 A272,272 0 0 0 784,662" fill="none"
+            stroke="#EAF6FA" stroke-width="30" stroke-linecap="round"/>
+      <line x1="100" y1="758" x2="924" y2="758" stroke="#EAF6FA" stroke-width="16"/>
+      <rect x="220" y="753" width="584" height="10" rx="5" fill="url(#beam)"/>
+    </g>
+    <!-- 水面波光 -->
+    <line x1="330" y1="700" x2="430" y2="700" stroke="#BFE8F2" stroke-width="8" stroke-linecap="round" opacity="0.35"/>
+    <line x1="560" y1="726" x2="700" y2="726" stroke="#BFE8F2" stroke-width="8" stroke-linecap="round" opacity="0.28"/>
+    <line x1="250" y1="820" x2="360" y2="820" stroke="#BFE8F2" stroke-width="8" stroke-linecap="round" opacity="0.2"/>
+    <line x1="620" y1="850" x2="760" y2="850" stroke="#BFE8F2" stroke-width="8" stroke-linecap="round" opacity="0.18"/>
+
+    <!-- 桥拱(与倒影合成完整圆环) -->
+    <path d="M240,658 A272,272 0 0 1 784,658" fill="none"
+          stroke="#F4FAFC" stroke-width="34" stroke-linecap="round"/>
+    <!-- 吊索:桥拱与桥面之间,细而克制 -->
+    <line x1="367" y1="560" x2="367" y2="440" stroke="#F4FAFC" stroke-width="12" opacity="0.85"/>
+    <line x1="512" y1="560" x2="512" y2="404" stroke="#F4FAFC" stroke-width="12" opacity="0.85"/>
+    <line x1="657" y1="560" x2="657" y2="440" stroke="#F4FAFC" stroke-width="12" opacity="0.85"/>
+    <!-- 桥面:通贯全幅 -->
+    <line x1="100" y1="560" x2="924" y2="560" stroke="#F4FAFC" stroke-width="26"/>
+
+    <!-- 桥面光带:流量穿行(用 rect 而非 line,零高度 bbox 会让 filter 区域坍缩) -->
+    <rect x="140" y="541" width="744" height="38" rx="19" fill="url(#beam)" filter="url(#glow)" opacity="0.9"/>
+    <rect x="190" y="553" width="644" height="14" rx="7" fill="url(#beam)"/>
+  </g>
+</svg>

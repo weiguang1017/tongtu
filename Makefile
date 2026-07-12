@@ -44,8 +44,17 @@ mac-app: desktop
 	cp bin/tongtu dist/TongTu.app/Contents/MacOS/tongtu
 	sed 's/__VERSION__/$(VERSION)/g' deploy/Info.plist > dist/TongTu.app/Contents/Info.plist
 	cp assets/icon/tongtu.icns dist/TongTu.app/Contents/Resources/tongtu.icns
-	@echo "dist/TongTu.app 已生成(版本 $(VERSION))"
+	codesign --force --deep --sign - --timestamp=none dist/TongTu.app
+	@echo "dist/TongTu.app 已生成并 ad-hoc 签名(版本 $(VERSION))"
 
 mac-dmg: mac-app
-	hdiutil create -volname 通途 -srcfolder dist/TongTu.app -ov -format UDZO \
-		dist/tongtu_v$(VERSION)_darwin_$(ARCH).dmg
+	rm -rf dist/dmgstage && mkdir -p dist/dmgstage
+	cp -R dist/TongTu.app dist/dmgstage/
+	ln -s /Applications dist/dmgstage/应用程序
+	cp assets/icon/tongtu.icns dist/dmgstage/.VolumeIcon.icns
+	hdiutil create -volname 通途 -srcfolder dist/dmgstage -ov -format UDRW dist/tongtu.rw.dmg
+	mnt=$$(hdiutil attach -nobrowse -readwrite dist/tongtu.rw.dmg | tail -1 | awk '{print $$NF}'); \
+		SetFile -a C "$$mnt" || true; hdiutil detach "$$mnt" >/dev/null
+	hdiutil convert dist/tongtu.rw.dmg -format UDZO -ov \
+		-o dist/tongtu_v$(VERSION)_darwin_$(ARCH).dmg
+	rm -f dist/tongtu.rw.dmg && rm -rf dist/dmgstage
