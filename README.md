@@ -35,9 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/weiguang1017/tongtu/main/install.sh
 装的就是**桌面客户端**(系统托盘常驻 + 原生窗口),不是浏览器面板版。脚本会自动识别
 系统与架构、下载最新 Release 并校验 SHA256:
 
-- **macOS**:把 `TongTu.app` 安装到「应用程序」。因为没有付费开发者证书,脚本会自动
-  **去除 quarantine 隔离标记并做 ad-hoc 重签名**,消除 Apple Silicon 上「已损坏 / 版本不适配」
-  和图标上的禁止标;装好后到「启动台 / 应用程序」打开「通途」即可(菜单栏出现托盘图标)。
+- **macOS**:把 `TongTu.app` 安装到「应用程序」。装好后到「启动台 / 应用程序」打开「通途」即可(菜单栏出现托盘图标)。
 - **Linux**(amd64):安装桌面二进制到 `/usr/local/bin` 并注册应用菜单图标与 `.desktop`,
   在应用菜单搜索「通途」启动;需要 GTK3 与 `libwebkit2gtk-4.0` 运行库。
 
