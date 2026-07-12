@@ -36,20 +36,33 @@ var staticFS embed.FS
 
 // Server 是管理面板服务。
 type Server struct {
-	addr  string
-	token string // 非回环监听时必填
-	open  bool   // 启动后自动打开系统浏览器
-	ring  *logRing
-	mgr   *runner.Manager // 连接器运行态:总开关 + 运行中动态调和
+	addr       string
+	token      string // 非回环监听时必填
+	open       bool   // 启动后自动打开系统浏览器
+	ring       *logRing
+	mgr        *runner.Manager // 连接器运行态:总开关 + 运行中动态调和
+	showWindow func()          // 桌面模式注入:唤起/置前原生窗口(nil = 非桌面模式)
 
 	mu         sync.Mutex
 	installing bool   // cloudflared 正在下载安装
 	installErr string // 上次自动安装失败原因(供前端展示)
 }
 
+// Option 是 New 的可选配置。
+type Option func(*Server)
+
+// WithShowWindow 注册桌面模式的窗口唤起回调,并挂载 POST /api/desktop/show
+// (新实例检测到端口已被占用时,用该端点把既有实例的窗口带到前台)。
+func WithShowWindow(f func()) Option {
+	return func(s *Server) { s.showWindow = f }
+}
+
+// Manager 返回面板持有的连接器运行态,供托盘菜单与面板共享同一开关。
+func (s *Server) Manager() *runner.Manager { return s.mgr }
+
 // New 创建面板服务;addr 非回环且 token 为空时报错。
 // openBrowser 为 true 时启动后自动用系统浏览器打开面板。
-func New(addr, token string, openBrowser bool) (*Server, error) {
+func New(addr, token string, openBrowser bool, opts ...Option) (*Server, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("监听地址 %q 不合法: %w", addr, err)
@@ -57,7 +70,11 @@ func New(addr, token string, openBrowser bool) (*Server, error) {
 	if ip := net.ParseIP(host); (ip == nil || !ip.IsLoopback()) && host != "localhost" && token == "" {
 		return nil, fmt.Errorf("监听非本机地址 %s 时必须设置 --web-token,否则任何人都能改你的配置", addr)
 	}
-	return &Server{addr: addr, token: token, open: openBrowser, ring: newLogRing(2000), mgr: runner.NewManager()}, nil
+	s := &Server{addr: addr, token: token, open: openBrowser, ring: newLogRing(2000), mgr: runner.NewManager()}
+	for _, o := range opts {
+		o(s)
+	}
+	return s, nil
 }
 
 // ListenAndServe 启动面板,阻塞到 ctx 取消。
@@ -85,6 +102,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/run", s.auth(s.handleRun))
 	mux.HandleFunc("/api/stop", s.auth(s.handleStop))
 	mux.HandleFunc("/api/status", s.auth(s.handleStatus))
+	if s.showWindow != nil {
+		mux.HandleFunc("/api/desktop/show", s.auth(s.handleDesktopShow))
+	}
 
 	// 面板日志与 cloudflared 子进程输出各 tee 一份进环形缓冲,供页面「运行日志」展示
 	log.SetOutput(io.MultiWriter(os.Stderr, s.ring))
@@ -586,6 +606,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, map[string]any{"ok": true, "hostnames": plan.Hostnames()})
+}
+
+// handleDesktopShow 唤起桌面窗口(仅桌面模式挂载,供新实例做单实例唤起)。
+func (s *Server) handleDesktopShow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, http.StatusMethodNotAllowed, "仅支持 POST")
+		return
+	}
+	s.showWindow()
+	jsonOK(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {

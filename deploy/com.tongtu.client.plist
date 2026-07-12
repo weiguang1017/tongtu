@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 通途客户端 macOS 开机自启(LaunchAgent)
+<!-- 通途客户端 macOS 开机自启(LaunchAgent)—— headless 服务器/无图形场景用。
+     桌面版用户请改用托盘菜单里的「开机自启」开关(自动管理
+     ~/Library/LaunchAgents/com.tongtu.desktop.plist),不要与本模板同时启用,
+     否则登录后会同时运行两份连接器。
      用法:
        cp bin/tongtu /usr/local/bin/
        先在终端完成配置: tongtu cred add / domain add / app add

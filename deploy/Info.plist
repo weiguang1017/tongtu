@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 通途 macOS .app 模板(make mac-app 会把 __VERSION__ 替换为版本号)。
+     LSUIElement=true:主进程是托盘常驻体,不占 Dock/⌘Tab;
+     管理窗口由子进程(tongtu window)承载,窗口开着时 Dock 才出图标。 -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key><string>tongtu</string>
+	<key>CFBundleIdentifier</key><string>com.tongtu.client</string>
+	<key>CFBundleName</key><string>TongTu</string>
+	<key>CFBundleDisplayName</key><string>通途</string>
+	<key>CFBundleIconFile</key><string>tongtu</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>__VERSION__</string>
+	<key>CFBundleVersion</key><string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key><string>11.0</string>
+	<key>LSUIElement</key><true/>
+	<key>NSHighResolutionCapable</key><true/>
+	<key>NSHumanReadableCopyright</key><string>MIT License</string>
+</dict>
+</plist>

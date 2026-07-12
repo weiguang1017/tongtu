@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  通途托盘模板图(源文件,22×22 视口,@2x 渲染为 44×44)。
+  单色 glyph:桥拱 + 桥面 + 倒影短弧,纯黑 + alpha,macOS 按菜单栏
+  明暗模式自动着色(systray.SetTemplateIcon);Linux/Windows 托盘用
+  主图标的彩色缩版,不用本文件。
+-->
+<svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="#000" stroke-linecap="round">
+    <!-- 桥拱 -->
+    <path d="M4.5,14 A6.5,6.5 0 0 1 17.5,14" stroke-width="2"/>
+    <!-- 桥面 -->
+    <line x1="1.5" y1="11.5" x2="20.5" y2="11.5" stroke-width="1.8"/>
+    <!-- 倒影(短弧,降透明度) -->
+    <path d="M6.5,16.5 A6.5,4.5 0 0 0 15.5,16.5" stroke-width="1.6" opacity="0.45"/>
+  </g>
+</svg>

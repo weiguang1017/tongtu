@@ -17,8 +17,13 @@ concurrency:
 
 jobs:
   check:
-    name: 编译与测试
-    runs-on: ubuntu-latest
+    name: 编译与测试(${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux 桌面构建固定 22.04:webview_go 链接 webkit2gtk-4.0,24.04 仓库已移除
+        os: [ubuntu-22.04, macos-latest, windows-latest]
 
     steps:
       - name: 检出代码
@@ -30,18 +35,39 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: 安装 Linux 桌面构建依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
       - name: 运行测试
         run: go test ./...
 
       - name: 静态检查
-        run: make vet
+        shell: bash
+        run: |
+          go vet ./...
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            CGO_ENABLED=0 go vet -tags desktop ./...
+          else
+            go vet -tags desktop ./...
+          fi
 
-      - name: 编译二进制
-        run: make build
+      - name: 编译桌面版
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            CGO_ENABLED=0 go build -tags desktop ./cmd/tongtu
+          else
+            CGO_ENABLED=1 go build -tags desktop ./cmd/tongtu
+          fi
 
-      - name: 冒烟测试
+      - name: 编译 headless 版并冒烟测试
+        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
+          CGO_ENABLED=0 go build -o bin/tongtu ./cmd/tongtu
           ./bin/tongtu help >/dev/null
           HOME="${RUNNER_TEMP}/tongtu-empty" ./bin/tongtu cred list >/dev/null
           if ./bin/tongtu app add x --local 1.2.3.4:1 >/tmp/tongtu-smoke.log 2>&1; then
@@ -50,13 +76,96 @@ jobs:
             exit 1
           fi
 
-  release:
-    name: 生成安装包
+  release-desktop:
+    name: 桌面安装包(${{ matrix.os }})
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 安装 Linux 桌面构建依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: macOS .app + dmg(amd64 与 arm64)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          for arch in arm64 amd64; do
+            CGO_ENABLED=1 GOARCH="$arch" go build -tags desktop -trimpath \
+              -ldflags "-s -w" -o bin/tongtu ./cmd/tongtu
+            rm -rf dist/TongTu.app
+            mkdir -p dist/TongTu.app/Contents/MacOS dist/TongTu.app/Contents/Resources
+            cp bin/tongtu dist/TongTu.app/Contents/MacOS/tongtu
+            sed "s/__VERSION__/${version}/g" deploy/Info.plist > dist/TongTu.app/Contents/Info.plist
+            cp assets/icon/tongtu.icns dist/TongTu.app/Contents/Resources/tongtu.icns
+            hdiutil create -volname 通途 -srcfolder dist/TongTu.app -ov -format UDZO \
+              "dist/tongtu_${GITHUB_REF_NAME}_darwin_${arch}_desktop.dmg"
+            ditto -c -k --keepParent dist/TongTu.app \
+              "dist/tongtu_${GITHUB_REF_NAME}_darwin_${arch}_desktop.app.zip"
+            rm -rf dist/TongTu.app
+          done
+
+      - name: Windows 双 exe(amd64 与 arm64)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            pkg="tongtu_${GITHUB_REF_NAME}_windows_${arch}_desktop"
+            mkdir -p "build/${pkg}"
+            CGO_ENABLED=0 GOARCH="$arch" go build -tags desktop -trimpath \
+              -ldflags "-s -w -H windowsgui" -o "build/${pkg}/tongtu-gui.exe" ./cmd/tongtu
+            CGO_ENABLED=0 GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w" -o "build/${pkg}/tongtu.exe" ./cmd/tongtu
+            cp README.md "build/${pkg}/"
+            (cd build && 7z a -tzip "../dist/${pkg}.zip" "${pkg}" >/dev/null)
+          done
+
+      - name: Linux 桌面 tar.gz(amd64)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          pkg="tongtu_${GITHUB_REF_NAME}_linux_amd64_desktop"
+          mkdir -p "build/${pkg}/icons" dist
+          CGO_ENABLED=1 go build -tags desktop -trimpath -ldflags "-s -w" \
+            -o "build/${pkg}/tongtu" ./cmd/tongtu
+          cp README.md deploy/tongtu.desktop "build/${pkg}/"
+          for size in 48 128 256; do
+            install -D "assets/icon/png/icon-${size}.png" \
+              "build/${pkg}/icons/hicolor/${size}x${size}/apps/tongtu.png"
+          done
+          (cd build && tar -czf "../dist/${pkg}.tar.gz" "${pkg}")
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: dist/*
+
+  release-headless:
+    name: headless 安装包
     needs: check
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: 检出代码
@@ -112,7 +221,29 @@ jobs:
             fi
           done
 
-          (cd dist && shasum -a 256 * > checksums.txt)
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless
+          path: dist/*
+
+  publish:
+    name: 发布 Release
+    needs: [release-desktop, release-headless]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 汇总产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: 创建或更新 GitHub Release
         env:
@@ -120,10 +251,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          (cd dist && shasum -a 256 * > checksums.txt)
+
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
           else
             gh release create "${GITHUB_REF_NAME}" dist/* \
               --title "tongtu ${GITHUB_REF_NAME}" \
-              --notes "自动发布 ${GITHUB_REF_NAME}。一键安装（Linux/macOS）：\`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`；或下载对应系统与架构的压缩包，解压后在解压目录运行 \`./tongtu\`（或将其移入 PATH）。"
+              --notes "自动发布 ${GITHUB_REF_NAME}。桌面版(托盘+窗口):macOS 下载 \`*_desktop.dmg\`,Windows 下载 \`*_windows_*_desktop.zip\`,Linux 下载 \`*_linux_*_desktop.tar.gz\`。服务器/无图形环境用 headless 包或一键安装:\`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`。"
           fi

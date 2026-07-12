@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=通途
+GenericName=TongTu
+Comment=天堑变通途,家宽即服务器 — 极简内网穿透
+Exec=tongtu
+Icon=tongtu
+Terminal=false
+Categories=Network;Utility;
+Keywords=tunnel;cloudflare;内网穿透;

@@ -34,6 +34,7 @@ import (
 	"tongtu/internal/cf"
 	"tongtu/internal/cli"
 	"tongtu/internal/cloudflared"
+	"tongtu/internal/desktop"
 )
 
 var subdomainRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -45,10 +46,18 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// 无参数 = 图形模式:启动管理面板并自动打开浏览器
+	// 无参数 = 图形模式:桌面构建启动托盘+原生窗口;headless 构建启动面板并打开浏览器
 	args := os.Args[1:]
-	if len(args) == 0 {
-		args = []string{"web", "--open"}
+	switch {
+	case len(args) == 0:
+		if desktop.Available() {
+			args = []string{"desktop"}
+		} else {
+			args = []string{"web", "--open"}
+		}
+	case args[0] == "--hidden" || args[0] == "--silent":
+		// 开机自启入口:静默启动到托盘,不弹窗口
+		args = []string{"desktop", "--hidden"}
 	}
 
 	// 先尝试子命令;不匹配则回落到旧版单命令快捷路径

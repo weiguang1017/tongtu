@@ -32,6 +32,11 @@ func Execute(ctx context.Context, args []string) (bool, error) {
 		return true, cmdStatus(ctx, args[1:])
 	case "web":
 		return true, cmdWeb(ctx, args[1:])
+	case "desktop":
+		return true, cmdDesktop(ctx, args[1:])
+	case "window":
+		// 内部命令:桌面模式的窗口子进程,由主进程 spawn,不进 usage
+		return true, cmdWindow(ctx, args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return true, nil
@@ -43,8 +48,9 @@ func usage() {
 	fmt.Print(`通途 tongtu —— 天堑变通途,家宽即服务器(纯客户端,公网侧由 Cloudflare 承担)
 
 图形界面(推荐):
-  tongtu                        直接运行即启动图形管理界面,并自动打开浏览器
-  tongtu web [--addr 127.0.0.1:7080] [--open]   手动指定监听地址启动
+  tongtu                        直接运行即启动图形界面(桌面版为托盘+窗口,headless 版打开浏览器)
+  tongtu desktop [--hidden]     桌面模式:系统托盘常驻,--hidden 静默启动(开机自启用)
+  tongtu web [--addr 127.0.0.1:7080] [--open]   浏览器面板模式,手动指定监听地址
 
 子命令:
   cred   add|list|update|rm     管理 Cloudflare API 凭证

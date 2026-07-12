@@ -7,12 +7,16 @@
 通过你自己的域名(自动 HTTPS)暴露到公网。**纯客户端,无需自建服务器** ——
 公网接入、TLS 证书、DNS 全部由 Cloudflare 免费承担。
 
-**图形界面,开箱即用**:直接运行 `tongtu`(不带任何参数)即启动图形管理界面并自动打开浏览器,
-首次使用有三步向导引导完成全部配置,cloudflared 连接器可一键安装。
+**桌面客户端,开箱即用**:直接运行 `tongtu`(不带任何参数)即启动桌面客户端 ——
+系统托盘常驻 + 原生窗口,首次使用有三步向导引导完成全部配置,cloudflared 连接器可一键安装。
+**关闭窗口不会退出**:隧道在后台继续运行,托盘图标右键「退出」才真正退出;
+托盘菜单还可一键开关「开机自启」(登录后静默启动到托盘)。
 
 ```
-tongtu          # 启动图形界面:向导式配置 → 一键启动隧道 → 实时日志
+tongtu          # 启动桌面客户端:向导式配置 → 一键启动隧道 → 实时日志
 ```
+
+服务器/无图形环境用 headless 版:`tongtu web` 启动纯浏览器面板,功能完全一致。
 
 偏好命令行的用户,所有能力也都有对应子命令:
 
@@ -61,6 +65,28 @@ sudo mv tongtu /usr/local/bin/
 Windows 用户下载 zip 包解压后,在解压目录运行 `.\tongtu.exe`,或将其所在目录加入 `Path` 环境变量。
 
 </details>
+
+## 桌面客户端
+
+桌面版(Release 里带 `_desktop` 后缀的包)在三平台提供一致的形态:
+
+- **托盘常驻**:启动后菜单栏/任务栏出现通途图标,菜单含「打开面板 / 启动·停止连接器 /
+  开机自启 / 在浏览器中打开 / 退出」,连接器状态实时显示;
+- **原生窗口**:管理界面在系统自带 WebView 中打开(macOS WKWebView / Windows WebView2 /
+  Linux WebKitGTK),关窗后隧道照常运行,再点「打开面板」窗口即回;重复点击只会置前已开窗口;
+- **开机自启**:托盘菜单勾选即可,登录后以 `tongtu --hidden` 静默启动到托盘
+  (macOS 写 `~/Library/LaunchAgents/com.tongtu.desktop.plist`,Windows 写注册表
+  `HKCU\...\Run`,Linux 写 `~/.config/autostart/tongtu.desktop`);
+- **单实例**:重复启动会自动唤起已运行实例的窗口,不会出现双连接器。
+
+平台注意事项:
+
+- **macOS**:下载 `*_desktop.dmg`,把 `TongTu.app` 拖入「应用程序」。未签名应用首次打开
+  需右键 →「打开」,或 `xattr -dr com.apple.quarantine /Applications/TongTu.app`;
+- **Windows**:zip 内含两个 exe —— `tongtu-gui.exe`(桌面客户端,无控制台窗口)与
+  `tongtu.exe`(命令行)。需要 WebView2 Runtime(Win10 21H1+ 系统自带);
+- **Linux**:需要 `libwebkit2gtk-4.0` 与 GTK3 运行库;GNOME 桌面托盘图标需要
+  AppIndicator 扩展。无法满足时用 headless 版 `tongtu web` 即可。
 
 ## 快速上手:三步把本地服务发布到公网
 
@@ -263,26 +289,35 @@ tongtu -name demo -local 127.0.0.1:3000 -cleanup   # -cleanup: 退出时删除�
 ## 构建
 
 ```bash
-make build     # 产出 bin/tongtu
-make linux     # 交叉编译 bin/tongtu-linux-amd64 / arm64
+make build        # headless 版 bin/tongtu(纯 Go,零 CGO)
+make linux        # 交叉编译 bin/tongtu-linux-amd64 / arm64(headless)
+make desktop      # 本平台桌面版(macOS/Linux 需 CGO;Linux 需 libgtk-3-dev libwebkit2gtk-4.0-dev)
+make desktop-win  # 交叉编译 Windows 桌面版双 exe(纯 Go,任意平台可执行)
+make mac-app      # 组装 dist/TongTu.app
+make mac-dmg      # 打包 dmg
+make icons        # 从 assets/icon/*.svg 重新生成全部图标(需 brew install librsvg)
 make vet
 ```
 
 ## 自动构建与发布
 
-GitHub Actions 会在推送代码或提交 PR 时自动执行测试、`go vet` 和编译。
-推送 `v*` 标签会自动生成 Linux / macOS / Windows 的 amd64、arm64 安装包,
-并发布到 GitHub Release:
+GitHub Actions 会在推送代码或提交 PR 时,在 Linux / macOS / Windows 三平台自动执行
+测试、`go vet` 与桌面版编译。推送 `v*` 标签会自动生成两类安装包并发布到 GitHub Release:
+桌面版(macOS dmg/app zip、Windows 双 exe zip、Linux tar.gz,带 `_desktop` 后缀)
+与 headless 版(六个系统/架构组合,纯 Go 交叉编译):
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-## 开机自启(macOS)
+## 开机自启
 
-先用 CLI 完成配置,再安装 LaunchAgent(开机执行 `tongtu run`):
-见 [`deploy/com.tongtu.client.plist`](deploy/com.tongtu.client.plist)。
+**桌面版**:托盘菜单勾选「开机自启」即可,无需手动配置。
+
+**headless/服务器场景(macOS)**:先用 CLI 完成配置,再安装 LaunchAgent(开机执行
+`tongtu run`):见 [`deploy/com.tongtu.client.plist`](deploy/com.tongtu.client.plist)。
+不要与桌面版的「开机自启」同时启用,否则登录后会运行两份连接器。
 
 ## 安全须知
 
