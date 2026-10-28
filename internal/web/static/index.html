@@ -500,7 +500,7 @@ async function refreshStatus() {
   const cfd = status.cloudflared || {};
   if (cfd.found) {
     $('#ovCfd').textContent = '已就绪';
-    $('#ovCfdDesc').textContent = cfd.path || '';
+    $('#ovCfdDesc').textContent = [cfd.version, cfd.path].filter(Boolean).join(' · ');
     $('#btnInstall').style.display = 'none';
     $('#ovCfdErr').style.display = 'none';
   } else if (status.installing) {
@@ -509,17 +509,21 @@ async function refreshStatus() {
     $('#btnInstall').style.display = 'none';
     $('#ovCfdErr').style.display = 'none';
   } else {
-    $('#ovCfd').textContent = '未安装';
-    $('#ovCfdDesc').textContent = '启动隧道前需要 cloudflared 连接器';
+    $('#ovCfd').textContent = cfd.path ? '需要升级' : '未安装';
+    $('#ovCfdDesc').textContent = cfd.version ? `当前版本 ${cfd.version}，需要 ${cfd.minimum_version} 或更高版本` : '启动隧道前需要 cloudflared 连接器';
     $('#btnInstall').style.display = '';
+    $('#btnInstall').textContent = cfd.path ? '⬆ 一键升级' : '⬇ 一键安装';
     const errEl = $('#ovCfdErr');
     if (cfd.install_error) {
       errEl.innerHTML = '自动下载失败(常见于网络到 GitHub 受限):<br>' + esc(cfd.install_error)
         + '<br><br><b>三种解决办法(任选其一):</b><br>'
         + '· <b>配代理</b>:点上方「⚙ 下载设置」填本机代理后重试(推荐)<br>'
-        + '· macOS 终端执行 <code>brew install cloudflared</code><br>'
+        + '· macOS 终端执行 <code>brew install cloudflared</code>，已安装则执行 <code>brew update && brew upgrade cloudflared</code><br>'
         + '· 手动下载放到 <code>~/.tongtu/bin/</code>:'
         + '<a href="https://github.com/cloudflare/cloudflared/releases/latest" target="_blank" rel="noopener">官方发布页</a>';
+      errEl.style.display = '';
+    } else if (cfd.hint) {
+      errEl.textContent = cfd.hint;
       errEl.style.display = '';
     } else errEl.style.display = 'none';
   }
@@ -622,7 +626,7 @@ async function startTunnels() {
     toast('连接器已启动: ' + (r.hostnames || []).join(', '));
   } catch (e) {
     if (e.status === 412) {  // cloudflared 未安装
-      toast('cloudflared 未安装,请先在「概览」页一键安装', 'err');
+      toast(e.message, 'err');
       nav('overview');
     } else toast('启动失败: ' + e.message, 'err');
   }
@@ -921,7 +925,8 @@ function wizRenderCfd() {
     $('#wzCfdHint').textContent = '正在下载 cloudflared 连接器,请稍候…';
     $('#wzInstall').style.display = 'none'; $('#wzStart').style.display = 'none';
   } else {
-    $('#wzCfdHint').textContent = '还差最后一步:通途依赖 cloudflared 连接器与 Cloudflare 建立加密通道,点下方按钮自动安装。';
+    $('#wzCfdHint').textContent = cfd.hint || '还差最后一步:通途依赖 cloudflared 连接器与 Cloudflare 建立加密通道,点下方按钮自动安装。';
+    $('#wzInstall').textContent = cfd.path ? '⬆ 一键升级 cloudflared' : '⬇ 一键安装 cloudflared';
     $('#wzInstall').style.display = ''; $('#wzStart').style.display = 'none';
   }
 }

@@ -207,7 +207,12 @@ tongtu 本身只做**编排**(纯 Go 标准库,零第三方依赖):
    brew install cloudflared        # macOS
    # Linux/Windows 见 https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
    ```
-   或者不装也行:图形界面里点「一键安装」,或 `tongtu run --auto-install`,
+   通途要求 Linux/Windows 的 `cloudflared >= 2026.10.2`,macOS 统一要求
+   `>= 2026.10.3`(覆盖手动下载的 macOS 修复版本)。这些版本修复了 2026 年 10 月
+   [eMudhra 中间证书私钥泄露事件](https://blog.cloudflare.com/emudhra-certificate-compromise/)
+   涉及的证书信任问题;通途在启动前与进程重启前检查版本,低于基线或无法识别的版本会拒绝启动。
+   Homebrew 已安装旧版本时执行 `brew update && brew upgrade cloudflared`,升级后重启连接器。
+   或者不装也行:图形界面里点「一键安装/升级」,或 `tongtu run --auto-install`,
    都会自动下载官方二进制到 `~/.tongtu/bin/`。国内直连 GitHub 受限时,可在图形界面
    「概览 → ⚙ 下载设置」填本机代理(如 `http://127.0.0.1:7890`),下载即走该代理;
    或直接 `brew install cloudflared`。

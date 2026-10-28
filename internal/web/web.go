@@ -696,11 +696,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		out["last_error"] = strings.Join(syncErrs, "; ")
 	}
 
-	if bin, err := cloudflared.Find(); err == nil {
-		out["cloudflared"] = map[string]any{"found": true, "path": bin}
-	} else {
-		out["cloudflared"] = map[string]any{"found": false, "install_error": installErr}
-	}
+	out["cloudflared"] = struct {
+		cloudflared.BinaryInfo
+		InstallError string `json:"install_error,omitempty"`
+	}{cloudflared.Inspect(), installErr}
 	jsonOK(w, out)
 }
 
@@ -754,11 +753,10 @@ func (s *Server) handleCloudflared(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	installing := s.installing
 	s.mu.Unlock()
-	if bin, err := cloudflared.Find(); err == nil {
-		jsonOK(w, map[string]any{"found": true, "path": bin, "installing": installing})
-	} else {
-		jsonOK(w, map[string]any{"found": false, "installing": installing, "hint": err.Error()})
-	}
+	jsonOK(w, struct {
+		cloudflared.BinaryInfo
+		Installing bool `json:"installing"`
+	}{cloudflared.Inspect(), installing})
 }
 
 func (s *Server) handleCloudflaredInstall(w http.ResponseWriter, r *http.Request) {

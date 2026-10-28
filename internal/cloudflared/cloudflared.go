@@ -33,20 +33,14 @@ func binDir() string {
 	return filepath.Join(home, ".tongtu", "bin")
 }
 
-// Find 返回可用的 cloudflared 路径:先查 PATH,再查通途自己的下载目录。
-// 都找不到时返回带安装指引的错误。
+// Find 返回可用且达到安全基线的 cloudflared 路径:先查 PATH,再查通途
+// 自己的下载目录。旧版本会被拒绝，避免隧道继续使用已知不安全的证书信任库。
 func Find() (string, error) {
-	if p, err := exec.LookPath("cloudflared"); err == nil {
-		return p, nil
+	info := Inspect()
+	if !info.Found {
+		return "", errors.New(info.Hint)
 	}
-	p := filepath.Join(binDir(), exeName())
-	if info, err := os.Stat(p); err == nil && !info.IsDir() {
-		return p, nil
-	}
-	return "", errors.New(`未找到 cloudflared,请先安装:
-  macOS:  brew install cloudflared
-  Linux:  参考 https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-或加 -auto-install 让通途自动下载官方二进制到 ~/.tongtu/bin/`)
+	return info.Path, nil
 }
 
 func exeName() string {
@@ -91,6 +85,18 @@ func Install(ctx context.Context, proxy string) (string, error) {
 		return "", err
 	}
 	dst := filepath.Join(dir, exeName())
+	return installTo(ctx, proxy, u, dst)
+}
+
+// installTo validates a staged download before atomically replacing the installed
+// binary. A failed download, extraction or version check leaves it untouched.
+func installTo(ctx context.Context, proxy, u, dst string) (string, error) {
+	stage, err := os.MkdirTemp(filepath.Dir(dst), ".cloudflared-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(stage)
+	staged := filepath.Join(stage, exeName())
 
 	client := http.DefaultClient
 	if proxy != "" {
@@ -117,21 +123,26 @@ func Install(ctx context.Context, proxy string) (string, error) {
 
 	if runtime.GOOS == "darwin" {
 		// tgz:落盘后用系统 tar 解出 cloudflared
-		tmp := dst + ".tgz"
+		tmp := filepath.Join(stage, "download.tgz")
 		if err := saveTo(tmp, resp.Body); err != nil {
 			return "", err
 		}
-		defer os.Remove(tmp)
-		cmd := exec.CommandContext(ctx, "tar", "-xzf", tmp, "-C", dir, "cloudflared")
+		cmd := exec.CommandContext(ctx, "tar", "-xzf", tmp, "-C", stage, "cloudflared")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return "", fmt.Errorf("解压 cloudflared: %v: %s", err, out)
 		}
 	} else {
-		if err := saveTo(dst, resp.Body); err != nil {
+		if err := saveTo(staged, resp.Body); err != nil {
 			return "", err
 		}
 	}
-	if err := os.Chmod(dst, 0o755); err != nil {
+	if err := os.Chmod(staged, 0o755); err != nil {
+		return "", err
+	}
+	if _, err := checkBinary(staged); err != nil {
+		return "", fmt.Errorf("下载的 cloudflared 未通过安全版本检查: %w", err)
+	}
+	if err := os.Rename(staged, dst); err != nil {
 		return "", err
 	}
 	log.Printf("cloudflared 已安装到 %s", dst)
@@ -155,6 +166,11 @@ func saveTo(path string, r io.Reader) error {
 func Run(ctx context.Context, bin, token string) error {
 	backoff := time.Second
 	for {
+		// Also validate explicit paths and every restart, in case a binary was
+		// replaced or downgraded after discovery.
+		if _, err := checkBinary(bin); err != nil {
+			return err
+		}
 		start := time.Now()
 		err := runOnce(ctx, bin, token)
 		if ctx.Err() != nil {
