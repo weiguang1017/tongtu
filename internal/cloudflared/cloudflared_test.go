@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -37,7 +37,7 @@ func fakeBinary(t *testing.T, path, output string) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture uses a POSIX shell")
 	}
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\nprintf '%s\\n' '" + output + "'\nexit 0\nfi\nexit 99\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\nprintf '%s\\n' '" + output + "'\nexit 0\nfi\n: > \"$0.started\"\nexit 99\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +66,15 @@ func TestSecurityGate(t *testing.T) {
 			}
 			if !tt.secure {
 				// An explicit path must be rejected before the tunnel subprocess
-				// runs, instead of entering the retry loop (exit 99 in the fixture).
-				if err := Run(context.Background(), bin, "unused"); err == nil || strings.Contains(err.Error(), "99") {
-					t.Fatalf("Run did not reject unsafe binary before starting: %v", err)
+				// runs. Check the fixture's marker, since error messages include
+				// temporary paths that may contain arbitrary digits such as 99.
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				if err := Run(ctx, bin, "unused"); err == nil {
+					t.Fatal("Run accepted unsafe binary")
+				}
+				if _, err := os.Stat(bin + ".started"); !os.IsNotExist(err) {
+					t.Fatalf("unsafe binary must not run; marker stat: %v", err)
 				}
 			}
 		})
