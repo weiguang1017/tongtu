@@ -1,6 +1,6 @@
 .PHONY: build linux clean vet desktop desktop-win icons mac-app mac-dmg
 
-VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0)
+VERSION ?= 1.1.0
 ARCH    := $(shell uname -m)
 
 # 版本号注入:客户端左下角与 CLI 展示,发行版走此处
