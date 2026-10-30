@@ -33,6 +33,7 @@ type Manager struct {
 	root    context.Context       // 所有组进程 ctx 的父
 	procs   map[string]*groupProc // credName -> 运行中的组进程
 	errs    map[string]string     // credName -> 最近一次同步失败原因(成功后清除)
+	appErrs map[string]string     // app name -> 仅该应用的同步警告
 	page    *landing.Server       // 停用/删除应用的兜底宣传页服务,生命周期同总开关
 }
 
@@ -42,7 +43,7 @@ type groupProc struct {
 	token     string // CF API Token,组下线时清 ingress 用
 	accountID string
 	tunnelID  string
-	published []string // 最近一次成功写入 ingress 的对外域名
+	published []string // 最近一次 DNS 就绪且成功写入 ingress 的对外域名
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
@@ -50,22 +51,24 @@ type groupProc struct {
 // GroupStatus 是一个凭证组的运行快照。
 type GroupStatus struct {
 	Alive     bool     // 连接器进程是否在托管中
-	Published []string // 已写入 ingress 的对外域名
+	Published []string // DNS 就绪且已写入 ingress 的对外域名
 	LastError string   // 最近一次同步失败原因
 }
 
 // ManagerStatus 是 Manager 的运行快照(纯内存,不打 Cloudflare API)。
 type ManagerStatus struct {
-	Running bool
-	Groups  map[string]GroupStatus
+	Running   bool
+	Groups    map[string]GroupStatus
+	AppErrors map[string]string
 }
 
 func NewManager() *Manager {
-	return &Manager{procs: map[string]*groupProc{}, errs: map[string]string{}}
+	return &Manager{procs: map[string]*groupProc{}, errs: map[string]string{}, appErrs: map[string]string{}}
 }
 
 // Start 打开总开关:同步 plan 中所有组并启动各自的 cloudflared。
-// 任一组同步失败即整体失败,不启动任何进程(要么全就绪要么不跑)。
+// 任一组的隧道同步失败即整体失败,不启动任何进程;单应用 DNS
+// 问题由 syncGroup 隔离,不阻断同组其他应用或连接器启动。
 // ctx 仅约束首次同步的 API 调用;进程生命周期由 Stop 控制。
 // sel 是点名集合,供后续 Reconcile 沿用(空=全部启用应用)。
 func (m *Manager) Start(ctx context.Context, plan *Plan, sel []string) error {
@@ -103,6 +106,12 @@ func (m *Manager) Start(ctx context.Context, plan *Plan, sel []string) error {
 	m.running, m.sel, m.bin = true, sel, bin
 	m.root, m.cancel = root, cancel
 	m.errs = map[string]string{}
+	m.appErrs = map[string]string{}
+	for _, res := range results {
+		for name, msg := range res.appErrors {
+			m.appErrs[name] = msg
+		}
+	}
 	m.page = page
 	m.mu.Unlock()
 	for i := range plan.groups {
@@ -126,6 +135,7 @@ func (m *Manager) Stop() {
 	page := m.page
 	m.procs = map[string]*groupProc{}
 	m.errs = map[string]string{}
+	m.appErrs = map[string]string{}
 	m.root, m.cancel, m.sel, m.page = nil, nil, nil, nil
 	m.mu.Unlock()
 
@@ -162,6 +172,7 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 	}
 
 	var errs []error
+	appErrs := map[string]string{}
 	seen := map[string]bool{}
 	for i := range desired {
 		g := &desired[i]
@@ -175,9 +186,12 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 			continue
 		}
 		delete(m.errs, g.credName)
+		for name, msg := range res.appErrors {
+			appErrs[name] = msg
+		}
 		if gp := m.procs[g.credName]; gp != nil {
 			// 进程已在托管中:ingress 变更由 cloudflared 热加载,只更新快照
-			gp.published = g.hostnames()
+			gp.published = append([]string(nil), res.published...)
 			gp.token, gp.accountID, gp.tunnelID = g.token, res.accountID, res.tunnelID
 			m.mu.Unlock()
 			continue
@@ -188,6 +202,12 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 
 	// 不再期望的组(应用全部删除):清空远端 ingress 后停掉连接器
 	m.mu.Lock()
+	m.appErrs = appErrs
+	for name := range m.errs {
+		if !seen[name] {
+			delete(m.errs, name)
+		}
+	}
 	var gone []*groupProc
 	for name, gp := range m.procs {
 		if !seen[name] {
@@ -212,7 +232,7 @@ func (m *Manager) Reconcile(ctx context.Context, cfg *config.Config) error {
 func (m *Manager) Status() ManagerStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := ManagerStatus{Running: m.running, Groups: map[string]GroupStatus{}}
+	st := ManagerStatus{Running: m.running, Groups: map[string]GroupStatus{}, AppErrors: map[string]string{}}
 	for name, gp := range m.procs {
 		st.Groups[name] = GroupStatus{Alive: true, Published: append([]string(nil), gp.published...)}
 	}
@@ -220,6 +240,9 @@ func (m *Manager) Status() ManagerStatus {
 		g := st.Groups[name]
 		g.LastError = msg
 		st.Groups[name] = g
+	}
+	for name, msg := range m.appErrs {
+		st.AppErrors[name] = msg
 	}
 	return st
 }
@@ -232,7 +255,7 @@ func (m *Manager) startProc(root context.Context, bin string, g *group, res sync
 		token:     g.token,
 		accountID: res.accountID,
 		tunnelID:  res.tunnelID,
-		published: g.hostnames(),
+		published: append([]string(nil), res.published...),
 		cancel:    gcancel,
 		done:      make(chan struct{}),
 	}
@@ -240,6 +263,9 @@ func (m *Manager) startProc(root context.Context, bin string, g *group, res sync
 	m.procs[g.credName] = gp
 	m.mu.Unlock()
 	for _, e := range g.apps {
+		if msg := res.appErrors[e.name]; msg != "" {
+			continue
+		}
 		if e.publish {
 			log.Printf("✓ 通途已就绪: https://%s -> %s://%s", e.app.Hostname, e.app.Proto, e.app.Local)
 		} else {

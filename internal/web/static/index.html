@@ -72,6 +72,7 @@
   .tag.on  { background:var(--accent-weak); color:var(--accent); }
   .tag.off { background:#eef1f4; color:var(--muted); }
   .tag.warn { background:#fdf3e0; color:#9a6a00; cursor:help; }
+  .app-warning { margin-top:6px; max-width:300px; color:#9a6a00; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
   a.host { color:var(--accent); text-decoration:none; }
   a.host:hover { text-decoration:underline; }
 
@@ -109,6 +110,9 @@
            max-height:86vh; overflow:auto; padding:22px 24px; box-shadow:0 20px 50px rgba(0,0,0,.25); }
   .modal h3 { margin:0 0 16px; font-size:16px; }
   .modal .btns { display:flex; justify-content:flex-end; gap:10px; margin-top:6px; }
+  .confirm-modal h3 { color:var(--danger); }
+  .confirm-message { white-space:pre-line; line-height:1.7; margin-bottom:14px; }
+  #mdConfirm { z-index:30; }
 
   /* ---- 向导 ---- */
   .steps { display:flex; gap:6px; margin-bottom:18px; }
@@ -167,7 +171,7 @@
     <a data-v="creds">🔑 凭证</a>
     <a data-v="logs">📜 运行日志</a>
   </nav>
-  <div class="foot"><div class="ver" id="appVer"></div>公网侧由 Cloudflare 承担<br>本机不对外监听任何端口</div>
+  <div class="foot"><div class="ver" id="appVer">v1.1.0</div>公网侧由 Cloudflare 承担<br>本机不对外监听任何端口</div>
 </aside>
 
 <div id="main">
@@ -368,6 +372,18 @@
   </div>
 </div>
 
+<!-- ===== 危险操作确认弹窗 ===== -->
+<div class="overlay" id="mdConfirm" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+  <div class="modal confirm-modal">
+    <h3 id="confirmTitle">确认操作</h3>
+    <div class="confirm-message" id="confirmMessage"></div>
+    <div class="btns">
+      <button class="ghost" id="confirmCancel" type="button">取消</button>
+      <button class="danger" id="confirmOk" type="button">确认</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 新手向导 ===== -->
 <div class="overlay" id="mdWiz">
   <div class="modal">
@@ -470,6 +486,30 @@ function nav(v) {
 function show(id) { $('#' + id).classList.add('show'); }
 function hide(id) { $('#' + id).classList.remove('show'); }
 
+// 使用页面内弹窗确认危险操作。桌面版使用的 WebView 可能拦截原生确认框,
+// 导致点击删除后没有任何反馈，因此确认状态必须由页面自己管理。
+let confirmResolver = null;
+let confirmTrigger = null;
+function finishConfirm(confirmed) {
+  if (!confirmResolver) return;
+  const resolve = confirmResolver;
+  confirmResolver = null;
+  hide('mdConfirm');
+  if (confirmTrigger?.isConnected) confirmTrigger.focus();
+  confirmTrigger = null;
+  resolve(confirmed);
+}
+function confirmAction({title, message, confirmText = '确认'}) {
+  if (confirmResolver) finishConfirm(false);
+  confirmTrigger = document.activeElement;
+  $('#confirmTitle').textContent = title;
+  $('#confirmMessage').textContent = message;
+  $('#confirmOk').textContent = confirmText;
+  show('mdConfirm');
+  $('#confirmCancel').focus();
+  return new Promise(resolve => { confirmResolver = resolve; });
+}
+
 /* ---- 数据刷新与渲染 ---- */
 async function refresh() {
   try {
@@ -490,7 +530,8 @@ async function refreshStatus() {
   $('#btnStop').style.display = on ? '' : 'none';
   $('#ovRun').textContent = on ? '运行中' : '未运行';
   $('#ovRunDesc').textContent = on
-    ? (pub ? `已发布 ${pub} 个应用;单个应用可在下方表格独立启停,即时生效` : '运行中,但当前没有已启用的应用')
+    ? (pub ? `已发布 ${pub} 个应用;单个应用可在下方表格独立启停,即时生效`
+      : (cfg.apps.some(a => a.enabled) ? '连接器已启动，暂时没有应用成功发布，请查看下方提示' : '运行中,但当前没有已启用的应用'))
     : (cfg.apps.some(a => a.enabled) ? '点右上角「启动连接器」开始' : '先添加应用,再启动连接器');
   const errEl = $('#ovRunErr');
   if (status.last_error) { errEl.textContent = (on ? '同步警告: ' : '上次运行出错: ') + status.last_error; errEl.style.display = ''; }
@@ -536,11 +577,12 @@ const op = (act, name, cls, label) =>
   `<button class="mini ${cls}" data-act="${act}" data-name="${esc(name)}">${label}</button>`;
 
 // 状态列:区分「配置意图」(enabled)与「实际发布状态」(published)。
-// 连接器运行中,停用/删除即时生效;enabled 但未发布说明所在凭证组同步失败。
+// 连接器运行中,停用/删除即时生效;单应用 DNS 问题与凭证组错误分别展示。
 function appStateTag(a) {
   const st = (status.apps_state || {})[a.name] || {};
   if (status.running) {
     if (st.published) return '<span class="tag on">已发布</span>';
+    if (st.app_error) return `<span class="tag warn">${a.enabled ? '未发布' : '已停用 · DNS 异常'}</span><div class="app-warning">${esc(st.app_error)}</div>`;
     if (a.enabled) return `<span class="tag warn" title="${esc(st.group_error || '正在同步,稍候刷新')}">未发布</span>`;
     return '<span class="tag off">已停用</span>';
   }
@@ -623,7 +665,8 @@ async function startTunnels() {
   const btn = $('#btnStart'); btn.disabled = true;
   try {
     const r = await post('/api/run', {});
-    toast('连接器已启动: ' + (r.hostnames || []).join(', '));
+    if (r.warning) toast('连接器已启动，但有应用未发布：' + r.warning, 'err');
+    else toast('连接器已启动: ' + (r.hostnames || []).join(', '));
   } catch (e) {
     if (e.status === 412) {  // cloudflared 未安装
       toast(e.message, 'err');
@@ -634,7 +677,11 @@ async function startTunnels() {
   refreshStatus();
 }
 async function stopTunnels() {
-  if (!confirm('停止连接器将使全部已发布应用立即离线,确定?')) return;
+  if (!await confirmAction({
+    title: '停止连接器？',
+    message: '停止后全部已发布应用将立即离线。',
+    confirmText: '停止连接器',
+  })) return;
   const btn = $('#btnStop'); btn.disabled = true;
   try { await post('/api/stop', {}); toast('连接器已停止,全部应用已离线'); } catch (e) { toast(e.message, 'err'); }
   btn.disabled = false;
@@ -767,8 +814,16 @@ async function toggleApp(name) {
   } catch (e) { toast(e.message, 'err'); }
 }
 async function delApp(name) {
-  const hint = status.running ? '该应用将立即下线,' : '';
-  if (!confirm('删除应用 ' + name + '?' + hint + '其域名将改为显示通途介绍页(DNS 记录保留,可随时复用)。')) return;
+  const appStatus = (status.apps_state || {})[name] || {};
+  const hint = appStatus.published ? '该应用将立即下线。\n' : '';
+  const message = appStatus.app_error
+    ? '仅删除通途中的应用配置，现有 DNS 记录会保留。重新添加时可改用空闲的子域名；如需继续使用原域名，请先处理 DNS 问题。'
+    : '删除后，DNS 记录将保留；连接器运行期间访问该域名将显示通途介绍页。';
+  if (!await confirmAction({
+    title: '删除应用 ' + name + '？',
+    message: hint + message,
+    confirmText: '删除应用',
+  })) return;
   try {
     const r = await api('/api/apps/' + name, {method:'DELETE'});
     if (r.warning) toast(r.warning, 'err'); else toast('已删除 ' + name);
@@ -811,7 +866,11 @@ async function submitDomain() {
   $('#dmSave').disabled = false;
 }
 async function delDomain(name) {
-  if (!confirm('移除域名 ' + name + '?(Cloudflare 上的 Zone 不受影响)')) return;
+  if (!await confirmAction({
+    title: '移除域名 ' + name + '？',
+    message: '仅从通途配置中移除，Cloudflare 上的 Zone 不受影响。',
+    confirmText: '移除域名',
+  })) return;
   try { await api('/api/domains/' + name, {method:'DELETE'}); toast('已移除 ' + name); refresh(); }
   catch (e) { toast(e.message, 'err'); }
 }
@@ -842,7 +901,11 @@ async function submitCred() {
   $('#crSave').disabled = false;
 }
 async function delCred(name) {
-  if (!confirm('删除凭证 ' + name + '?')) return;
+  if (!await confirmAction({
+    title: '删除凭证 ' + name + '？',
+    message: '删除后，将从通途配置中移除此凭证。',
+    confirmText: '删除凭证',
+  })) return;
   try { await api('/api/creds/' + name, {method:'DELETE'}); toast('已删除 ' + name); refresh(); }
   catch (e) { toast(e.message, 'err'); }
 }
@@ -953,8 +1016,23 @@ function clearLogView() { logLines = []; $('#logbox').textContent = ''; }
 
 /* ---- 启动 ---- */
 document.querySelectorAll('.overlay').forEach(o => o.addEventListener('mousedown', e => {
-  if (e.target === o && o.id !== 'mdWiz') o.classList.remove('show');
+  if (e.target !== o) return;
+  if (o.id === 'mdConfirm') finishConfirm(false);
+  else if (o.id !== 'mdWiz') o.classList.remove('show');
 }));
+$('#confirmCancel').onclick = () => finishConfirm(false);
+$('#confirmOk').onclick = () => finishConfirm(true);
+document.addEventListener('keydown', e => {
+  if (!confirmResolver) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    finishConfirm(false);
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    const next = document.activeElement === $('#confirmCancel') ? '#confirmOk' : '#confirmCancel';
+    $(next).focus();
+  }
+});
 (async () => {
   await refresh();
   if (!cfg.creds.length) openWizard();   // 首次使用自动进入向导

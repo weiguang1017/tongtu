@@ -606,7 +606,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	jsonOK(w, map[string]any{"ok": true, "hostnames": plan.Hostnames()})
+	st := s.mgr.Status()
+	out := map[string]any{"ok": true, "hostnames": publishedHostnames(st)}
+	if warning := appWarning(st); warning != "" {
+		out["warning"] = warning
+	}
+	jsonOK(w, out)
 }
 
 // handleDesktopShow 唤起桌面窗口(仅桌面模式挂载,供新实例做单实例唤起)。
@@ -640,6 +645,9 @@ func (s *Server) reconcileAfterChange(cfg *config.Config) string {
 	defer cancel()
 	if err := s.mgr.Reconcile(ctx, cfg); err != nil {
 		return "配置已保存,但同步到 Cloudflare 失败: " + err.Error()
+	}
+	if warning := appWarning(s.mgr.Status()); warning != "" {
+		return "配置已保存。" + warning
 	}
 	return ""
 }
@@ -680,6 +688,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 					entry["group_error"] = g.LastError
 				}
 			}
+			if msg := st.AppErrors[name]; msg != "" {
+				entry["app_error"] = msg
+			}
 			appsState[name] = entry
 		}
 	}
@@ -692,6 +703,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			syncErrs = append(syncErrs, "凭证 "+name+": "+e)
 		}
 	}
+	for _, name := range config.SortedNames(st.AppErrors) {
+		syncErrs = append(syncErrs, st.AppErrors[name])
+	}
 	if len(syncErrs) > 0 {
 		out["last_error"] = strings.Join(syncErrs, "; ")
 	}
@@ -701,6 +715,23 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		InstallError string `json:"install_error,omitempty"`
 	}{cloudflared.Inspect(), installErr}
 	jsonOK(w, out)
+}
+
+func appWarning(st runner.ManagerStatus) string {
+	var warnings []string
+	for _, name := range config.SortedNames(st.AppErrors) {
+		warnings = append(warnings, st.AppErrors[name])
+	}
+	return strings.Join(warnings, "; ")
+}
+
+func publishedHostnames(st runner.ManagerStatus) []string {
+	hostnames := []string{}
+	for _, name := range config.SortedNames(st.Groups) {
+		hostnames = append(hostnames, st.Groups[name].Published...)
+	}
+	slices.Sort(hostnames)
+	return hostnames
 }
 
 // ---- /api/zones:列出凭证可见的 Cloudflare Zone(供登记域名时选择) ----

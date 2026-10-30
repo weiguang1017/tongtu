@@ -7,6 +7,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -139,7 +140,7 @@ func groupApps(cfg *config.Config, selected map[string]*config.App, publish map[
 
 // Run 同步 Cloudflare 侧配置后启动 cloudflared,阻塞到 ctx 取消。
 // CLI(tongtu run)入口;管理面板改用 Manager 以支持运行中动态调和,
-// 这里薄封装保持 CLI 行为不变:要么全就绪要么不跑,Ctrl-C 优雅退出。
+// 单应用 DNS 问题写入日志后继续启动,Ctrl-C 优雅退出。
 func Run(ctx context.Context, plan *Plan) error {
 	m := NewManager()
 	if err := m.Start(ctx, plan, nil); err != nil {
@@ -155,6 +156,8 @@ type syncResult struct {
 	runToken  string // cloudflared 运行令牌
 	accountID string
 	tunnelID  string
+	published []string          // DNS 已就绪且实际发布的应用域名
+	appErrors map[string]string // 仅影响对应应用的同步警告
 }
 
 // syncGroup 为一组应用就绪隧道、ingress 与 DNS。
@@ -180,10 +183,25 @@ func syncGroup(ctx context.Context, g *group, fallback string) (syncResult, erro
 		log.Printf("已创建隧道: %s", tunnelName)
 	}
 
-	// 2. ingress:每个已发布应用一条,全量覆盖;停用应用不写规则,落兜底
+	// 2. DNS:不存在时自动创建。单应用的冲突、查询或写入失败均不阻断
+	// 连接器及其他应用;失败应用不写入 ingress,也不计入已发布数量。
+	published := make([]string, 0, len(g.apps))
+	appErrors := map[string]string{}
+	for _, e := range g.apps {
+		if err := client.UpsertTunnelCNAME(apiCtx, e.dom.ZoneID, e.app.Hostname, tunnel.ID); err != nil {
+			appErrors[e.name] = appDNSWarning(e.name, e.app.Hostname, err)
+			log.Printf("! %s", appErrors[e.name])
+			continue
+		}
+		if e.publish {
+			published = append(published, e.app.Hostname)
+		}
+	}
+
+	// 3. ingress:只发布 DNS 就绪的应用,停用应用落到兜底页。
 	rules := make([]cf.IngressRule, 0, len(g.apps))
 	for _, e := range g.apps {
-		if !e.publish {
+		if !e.publish || appErrors[e.name] != "" {
 			continue
 		}
 		r := cf.IngressRule{
@@ -202,19 +220,21 @@ func syncGroup(ctx context.Context, g *group, fallback string) (syncResult, erro
 		return syncResult{}, err
 	}
 
-	// 3. DNS:每应用一条 CNAME(含停用应用 —— 域名保持解析,访问显示宣传页)
-	for _, e := range g.apps {
-		if err := client.UpsertTunnelCNAME(apiCtx, e.dom.ZoneID, e.app.Hostname, tunnel.ID); err != nil {
-			return syncResult{}, err
-		}
-	}
-
 	// 4. 隧道令牌
 	tok, err := client.TunnelToken(apiCtx, accountID, tunnel.ID)
 	if err != nil {
 		return syncResult{}, err
 	}
-	return syncResult{runToken: tok, accountID: accountID, tunnelID: tunnel.ID}, nil
+	return syncResult{runToken: tok, accountID: accountID, tunnelID: tunnel.ID,
+		published: published, appErrors: appErrors}, nil
+}
+
+func appDNSWarning(name, hostname string, err error) string {
+	var conflict *cf.DNSRecordConflictError
+	if errors.As(err, &conflict) {
+		return fmt.Sprintf("应用 %s 的域名 %s 已有 %s 记录（指向 %s），无法配置隧道解析。连接器及其他应用不受影响。请在通途删除该应用后重新添加，改用未被占用的子域名；如需继续使用原域名，请先在 Cloudflare 控制台处理冲突记录，再重新添加。", name, hostname, conflict.Type, conflict.Content)
+	}
+	return fmt.Sprintf("应用 %s 的域名 %s 未能完成 DNS 配置：%v。连接器及其他应用不受影响。请检查网络及凭证的 DNS 权限，处理后可在通途删除该应用并重新添加，以重新配置解析。", name, hostname, err)
 }
 
 // clearIngress 清空隧道的 ingress 规则(只留 404 兜底),供组内应用全部

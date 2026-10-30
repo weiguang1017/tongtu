@@ -168,5 +168,9 @@ func autoPublish(ctx context.Context, mgr *runner.Manager) {
 		log.Printf("自动发布失败(可在面板或托盘手动启动): %v", err)
 		return
 	}
-	log.Printf("已自动发布 %d 个应用", enabled)
+	published := 0
+	for _, group := range mgr.Status().Groups {
+		published += len(group.Published)
+	}
+	log.Printf("连接器已自动启动，%d 个应用已发布", published)
 }

@@ -261,6 +261,18 @@ type DNSRecord struct {
 	Comment string `json:"comment,omitempty"`
 }
 
+// DNSRecordConflictError 表示目标主机名已被非隧道 DNS 记录占用。
+// 这只影响对应应用，调用方可以让同一凭证下的其他应用继续同步。
+type DNSRecordConflictError struct {
+	FQDN    string
+	Type    string
+	Content string
+}
+
+func (e *DNSRecordConflictError) Error() string {
+	return fmt.Sprintf("DNS 记录 %s 已存在(%s -> %s),且不是隧道记录,拒绝覆盖;请先在 Cloudflare 控制台处理", e.FQDN, e.Type, e.Content)
+}
+
 // FindDNSRecord 按完整域名查找记录(任意类型),不存在返回 nil。
 func (c *Client) FindDNSRecord(ctx context.Context, zoneID, fqdn string) (*DNSRecord, error) {
 	var recs []DNSRecord
@@ -299,7 +311,7 @@ func (c *Client) UpsertTunnelCNAME(ctx context.Context, zoneID, fqdn, tunnelID s
 		path := fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, existing.ID)
 		return c.do(ctx, http.MethodPut, path, want, nil)
 	default:
-		return fmt.Errorf("DNS 记录 %s 已存在(%s -> %s),且不是隧道记录,拒绝覆盖;请先在 Cloudflare 控制台处理", fqdn, existing.Type, existing.Content)
+		return &DNSRecordConflictError{FQDN: fqdn, Type: existing.Type, Content: existing.Content}
 	}
 }
 
